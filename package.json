@@ -1,0 +1,30 @@
+{
+  "name": "ai-consulting-crm-v1",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm --workspace=apps/web run dev",
+    "build": "npm --workspace=apps/web run build",
+    "start": "npm --workspace=apps/web run start",
+    "seed": "tsx scripts/seed.ts",
+    "test:pipeline": "tsx scripts/test-pipeline.ts"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.8.1",
+    "drizzle-orm": "^0.39.1",
+    "jose": "^5.9.6"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.13.1",
+    "autoprefixer": "^10.5.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
