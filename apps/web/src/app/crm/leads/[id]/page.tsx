@@ -252,38 +252,17 @@ export default function LeadDetailPage({
           techStack: {
             cms: data.dossier.websiteAnalysis?.cms.value || 'Nessuno rilevato',
             ecommerce: Boolean(data.dossier.websiteAnalysis?.isEcommerce.value),
-            analytics: Boolean(data.dossier.websiteAnalysis?.hasAnalytics.value),
-            hasChat: Boolean(data.dossier.websiteAnalysis?.hasChatbot.value),
-            hasBooking: Boolean(data.dossier.websiteAnalysis?.hasBooking.value),
-            hasWhatsapp: Boolean(data.dossier.websiteAnalysis?.hasWhatsapp.value),
-            frameworks: data.dossier.techStackSummary || [],
+            analytics: data.dossier.websiteAnalysis?.hasAnalytics.value ? 'Google Analytics / GTM Rilevato' : 'Non rilevato',
+            chat: Boolean(data.dossier.websiteAnalysis?.hasChatbot.value || data.dossier.websiteAnalysis?.hasWhatsapp.value),
+            booking: Boolean(data.dossier.websiteAnalysis?.hasBooking.value),
           },
-          openData: {
-            osmId: data.dossier.territorialData.osmId || 0,
-            hasOpeningHours: Boolean(data.dossier.territorialData.openingHours),
-            hasWheelchair: false,
-            cuisine: data.dossier.categoryLabel || undefined,
-            osmCategory: data.dossier.categoryLabel || undefined,
-            lastOsmCheck: data.dossier.completedAt,
-          },
-          reputation: {
-            hasPublicRating: Boolean(data.dossier.reviews?.hasPublicRating),
-            ratingValue: data.dossier.reviews?.ratingValue || 4.4,
-            reviewCount: data.dossier.reviews?.reviewCount || 1150,
-            sourceName: data.dossier.reviews?.sourceName || 'Google Maps & TripAdvisor',
-            sourceUrl: data.dossier.reviews?.sourceUrl || undefined,
-            signals: data.dossier.reviews?.signals || [],
-          },
-          opportunities: data.dossier.painPoints.map((p: any) => ({
-            id: p.id,
-            title: p.title,
-            description: p.description,
-            service: p.recommendedSolution,
-            impact: p.severity === 'alta' ? 'alto' : p.severity === 'media' ? 'medio' : 'basso',
-            estimatedValue: p.estimatedImpact,
-          })),
-          digitalMaturity: data.dossier.digitalMaturity,
-          lastUpdated: data.dossier.completedAt,
+          digitalMaturity: data.dossier.digitalMaturity || 'media',
+          estimatedRevenueRange: data.dossier.financials?.revenue?.min
+            ? `€${data.dossier.financials.revenue.min.toLocaleString()} - €${data.dossier.financials.revenue.max.toLocaleString()}`
+            : undefined,
+          detectedGaps: data.dossier.painPoints?.map((p: any) => p.title) || [],
+          aiOpportunities: data.dossier.painPoints?.map((p: any) => p.recommendedSolution) || [],
+          enrichedAt: data.dossier.completedAt,
         });
 
         // Ricarica i dati completi
