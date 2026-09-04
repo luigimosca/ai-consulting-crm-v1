@@ -94,7 +94,93 @@ export function LeadTable({ leads }: { leads: LeadItem[] }) {
 
       {/* Table Box */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/70 overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
+        {/* MOBILE CARDS VIEW (md:hidden) */}
+        <div className="block md:hidden divide-y divide-slate-800/80">
+          {filteredLeads.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-xs">
+              <Filter className="h-6 w-6 mx-auto mb-2 text-slate-500" />
+              Nessun lead trovato con i filtri selezionati.
+            </div>
+          ) : (
+            filteredLeads.map((lead) => (
+              <div key={lead.id} className="p-4 space-y-3 hover:bg-slate-800/30 transition-colors">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2.5">
+                    <div className="h-8 w-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0 mt-0.5 text-blue-400">
+                      <Building2 className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <Link 
+                        href={`/crm/leads/${lead.id}`}
+                        className="font-semibold text-white text-sm hover:text-blue-400 leading-tight block"
+                      >
+                        {lead.companyName}
+                      </Link>
+                      {lead.website && (
+                        <a
+                          href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-blue-400 mt-0.5"
+                        >
+                          <span className="truncate max-w-[180px]">{lead.website.replace(/^https?:\/\//, '')}</span>
+                          <ExternalLink className="h-2.5 w-2.5 shrink-0" />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                  <ScoreBadge score={lead.score} size="sm" />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="text-[11px] text-slate-300 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/60">
+                    {formatSector(lead.sector)}
+                  </span>
+                  <Badge variant={getStatusBadgeVariant(lead.status)} className="text-[10px]">
+                    {formatStatus(lead.status)}
+                  </Badge>
+                  {lead.city && (
+                    <span className="flex items-center gap-1 text-[11px] text-slate-400">
+                      <MapPin className="h-3 w-3 text-slate-500 shrink-0" />
+                      {lead.city}
+                    </span>
+                  )}
+                </div>
+
+                {(lead.phone || lead.email) && (
+                  <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400 pt-1 border-t border-slate-800/60">
+                    {lead.phone && (
+                      <a href={`tel:${lead.phone}`} className="flex items-center gap-1 text-slate-300 hover:text-white">
+                        <Phone className="h-3 w-3 text-emerald-400 shrink-0" />
+                        <span>{lead.phone}</span>
+                      </a>
+                    )}
+                    {lead.email && (
+                      <a href={`mailto:${lead.email}`} className="flex items-center gap-1 text-slate-300 hover:text-white truncate max-w-[170px]">
+                        <Mail className="h-3 w-3 text-blue-400 shrink-0" />
+                        <span className="truncate">{lead.email}</span>
+                      </a>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-1 text-[11px] text-slate-500">
+                  <span className="capitalize">Fonte: {lead.source}</span>
+                  <Link
+                    href={`/crm/leads/${lead.id}`}
+                    className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 font-semibold py-1 px-3 rounded-lg bg-blue-950/50 border border-blue-800/60"
+                  >
+                    <span>Dettagli & Scheda</span>
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </Link>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* DESKTOP TABLE VIEW (hidden md:block) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-sm text-slate-300">
             <thead className="bg-slate-950/80 text-xs uppercase tracking-wider text-slate-400 border-b border-slate-800">
               <tr>

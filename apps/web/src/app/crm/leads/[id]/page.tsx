@@ -867,8 +867,8 @@ export default function LeadDetailPage({
         )}
       </Card>
 
-      {/* Main Tabs Navigation */}
-      <div className="flex items-center gap-2 border-b border-slate-800 text-xs pb-1">
+      {/* Main Tabs Navigation (Mobile Scrollable) */}
+      <div className="flex items-center gap-2 border-b border-slate-800 text-xs pb-1 overflow-x-auto whitespace-nowrap scrollbar-none">
         <button
           type="button"
           onClick={() => setActiveTab('overview')}
