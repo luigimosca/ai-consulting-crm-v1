@@ -6,6 +6,7 @@ import { ReviewSignalAdapter } from './review-signal-adapter';
 import { GrowthSignalAdapter } from './growth-signal-adapter';
 import { generateCommercialPainPoints } from './pain-points';
 import { calculateEnrichmentScores } from './scoring';
+import { discoverCompanyOnlinePresence } from './web-discovery';
 import {
   type FullEnrichmentDossier,
   type PublicContactItem,
@@ -74,10 +75,28 @@ export class EnrichmentOrchestrator {
       });
     }
 
-    // 2. Adapter 2: Website Analyzer
+    // 2. Adapter 2: Website Analyzer con Auto-Discovery
     const t1 = Date.now();
     let webResult: any = null;
-    const domainToAnalyze = lead.website || (osmResult?.contacts?.find((c: any) => c.type === 'website')?.value) || null;
+    let domainToAnalyze = lead.website || (osmResult?.contacts?.find((c: any) => c.type === 'website')?.value) || null;
+    let discoveredOnline: any = null;
+
+    // Se il sito non è noto da OSM o dal lead, avvia la Discovery automatica del dominio web
+    if (!domainToAnalyze && lead.companyName) {
+      try {
+        discoveredOnline = await discoverCompanyOnlinePresence({
+          companyName: lead.companyName,
+          city: lead.city,
+          sector: lead.sector,
+          address: lead.address,
+        });
+        if (discoveredOnline.suggestedWebsites && discoveredOnline.suggestedWebsites.length > 0) {
+          domainToAnalyze = discoveredOnline.suggestedWebsites[0].url;
+        }
+      } catch (discErr) {
+        console.warn('[Orchestrator] Auto-discovery web non riuscita:', discErr);
+      }
+    }
 
     try {
       webResult = await this.websiteAdapter.analyze(domainToAnalyze, lead.sector);
@@ -105,6 +124,21 @@ export class EnrichmentOrchestrator {
       ...(osmResult?.contacts || []),
       ...(webResult?.discoveredContacts || []),
     ];
+
+    // Se l'Auto-Discovery ha trovato canali social aggiuntivi, integrali
+    if (discoveredOnline?.suggestedSocials) {
+      for (const soc of discoveredOnline.suggestedSocials) {
+        rawContacts.push({
+          type: 'social',
+          value: soc.url,
+          sourceUrl: soc.url,
+          confidence: 0.85,
+          isVerified: false,
+          verificationStatus: 'da_verificare',
+          collectedAt: new Date().toISOString(),
+        });
+      }
+    }
 
     const deduplicatedContacts: PublicContactItem[] = [];
     const seenContactValues = new Set<string>();

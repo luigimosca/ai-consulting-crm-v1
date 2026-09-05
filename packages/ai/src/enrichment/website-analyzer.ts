@@ -208,6 +208,27 @@ export class WebsiteAnalyzerAdapter {
       });
     }
 
+    // Estrazione esplicita link/numeri WhatsApp
+    const whatsappMatches = combinedHtml.match(/(?:wa\.me\/|api\.whatsapp\.com\/send\?phone=)(\+?\d{8,15})/gi);
+    if (whatsappMatches) {
+      const seenWa = new Set<string>();
+      for (const rawWa of whatsappMatches) {
+        const digits = rawWa.replace(/[^0-9+]/g, '');
+        if (digits.length >= 8 && !seenWa.has(digits)) {
+          seenWa.add(digits);
+          discoveredContacts.push({
+            type: 'whatsapp',
+            value: digits.startsWith('+') ? digits : `+${digits}`,
+            sourceUrl: homeResult.url,
+            confidence: 0.95,
+            isVerified: false,
+            verificationStatus: 'da_verificare',
+            collectedAt: now,
+          });
+        }
+      }
+    }
+
     for (const soc of socialLinks) {
       discoveredContacts.push({
         type: 'social',

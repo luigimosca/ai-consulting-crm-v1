@@ -103,7 +103,7 @@ export async function discoverCompanyOnlinePresence(params: {
     })
   );
 
-  // 2. Ricerca Web Aperta (DuckDuckGo HTML query gratuita)
+  // 2. Ricerca Web Aperta (DuckDuckGo HTML query gratuita con timeout rigoroso)
   try {
     const query = `${companyName} ${city || ''} ${sector ? sector.replace(/_/g, ' ') : ''} sito recensioni`;
     const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
@@ -114,6 +114,7 @@ export async function discoverCompanyOnlinePresence(params: {
         'Accept': 'text/html,application/xhtml+xml',
         'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8',
       },
+      signal: AbortSignal.timeout(3500),
     });
 
     if (searchRes.ok) {

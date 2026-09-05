@@ -44,6 +44,20 @@ export function generateCommercialPainPoints(
     });
   }
 
+  // 1b. Assenza Canale Email / Modulo Contatti
+  const hasEmail = Boolean(analysis.extractedEmails && analysis.extractedEmails.length > 0) || Boolean(analysis.extractedPec);
+  const hasContactForm = Boolean(analysis.hasContactForm?.value);
+  if (!hasEmail && !hasContactForm) {
+    painPoints.push({
+      id: 'no_public_email_channel',
+      title: 'Assenza di canale email o modulo per richieste scritte',
+      description: 'L\'attività non espone un indirizzo email pubblico né un form sul web: i turisti stranieri o clienti con richieste speciali non possono inviare comunicazioni scritte asincrone, congestionando il telefono.',
+      severity: 'alta',
+      recommendedSolution: 'Integrazione form contatti AI con smistamento automatico richieste e risposta istantanea',
+      estimatedImpact: '+20% di conversioni da clientela turistica ed eventi privati',
+    });
+  }
+
   // 2. Assenza Booking / Prenotazioni Online
   const hasBooking = Boolean(analysis.hasBooking?.value);
   const isHoreca = sector === 'horeca_ristoranti' || sector === 'horeca_hotel';
