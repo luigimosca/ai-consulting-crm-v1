@@ -13,9 +13,9 @@ import {
   Bot, 
   ShieldCheck,
   Menu,
-  X
+  X,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, APP_VERSION } from '@/lib/utils';
 
 export function Sidebar({ user }: { user?: { name: string; email: string; role: string } | null }) {
   const pathname = usePathname();
@@ -68,8 +68,11 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
             <Bot className="h-4 w-4 text-white" />
           </div>
           <div>
-            <h1 className="text-sm font-bold tracking-tight text-white leading-tight">AI Agency CRM</h1>
-            <span className="text-[9px] text-blue-400 font-medium tracking-wider uppercase block">v1.0 Suite</span>
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-sm font-bold tracking-tight text-white leading-tight">AI Agency CRM</h1>
+              <span className="text-[9px] bg-blue-500/15 text-blue-400 border border-blue-500/30 px-1.5 py-0.2 rounded font-mono font-medium">{APP_VERSION}</span>
+            </div>
+            <span className="text-[9px] text-slate-400 font-medium tracking-wider uppercase block">Suite Backoffice</span>
           </div>
         </Link>
 
@@ -107,7 +110,10 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
                     <Bot className="h-4 w-4 text-white" />
                   </div>
                   <div>
-                    <h1 className="text-sm font-bold tracking-tight text-white leading-tight">AI Agency CRM</h1>
+                    <div className="flex items-center gap-1.5">
+                      <h1 className="text-sm font-bold tracking-tight text-white leading-tight">AI Agency CRM</h1>
+                      <span className="text-[9px] bg-blue-500/15 text-blue-400 border border-blue-500/30 px-1.5 py-0.2 rounded font-mono font-medium">{APP_VERSION}</span>
+                    </div>
                     <span className="text-[9px] text-blue-400 font-medium tracking-wider uppercase">Menu Admin</span>
                   </div>
                 </Link>
@@ -161,7 +167,7 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
             </div>
 
             {/* Mobile Drawer Footer with User & Logout */}
-            <div className="p-4 border-t border-slate-800/80 bg-slate-900/50">
+            <div className="p-4 border-t border-slate-800/80 bg-slate-900/50 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
                   <div className="h-8 w-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-xs text-blue-400">
@@ -184,6 +190,14 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
                 >
                   <LogOut className="h-4 w-4" />
                 </button>
+              </div>
+
+              <div className="pt-2.5 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                <span className="text-slate-400 font-medium">Versione {APP_VERSION}</span>
+                <span className="flex items-center gap-1.5 text-emerald-400 font-sans text-[10px]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Live
+                </span>
               </div>
             </div>
           </div>
@@ -231,8 +245,15 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
                 <Bot className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h1 className="text-base font-bold tracking-tight text-white">AI Agency CRM</h1>
-                <span className="text-[10px] text-blue-400 font-medium tracking-wider uppercase">v1.0 Suite</span>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-base font-bold tracking-tight text-white">AI Agency CRM</h1>
+                </div>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="text-[10px] bg-blue-500/15 text-blue-400 border border-blue-500/30 px-1.5 py-0.2 rounded font-mono font-medium">
+                    {APP_VERSION}
+                  </span>
+                  <span className="text-[9px] text-slate-400 uppercase tracking-wider font-semibold">Suite</span>
+                </div>
               </div>
             </Link>
           </div>
@@ -276,7 +297,7 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
         </div>
 
         {/* User Footer */}
-        <div className="p-4 border-t border-slate-800/80 bg-slate-900/40">
+        <div className="p-4 border-t border-slate-800/80 bg-slate-900/40 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-xs text-blue-400">
@@ -299,6 +320,14 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
             >
               <LogOut className="h-4 w-4" />
             </button>
+          </div>
+
+          <div className="pt-2.5 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+            <span className="text-slate-400 font-medium">Versione {APP_VERSION}</span>
+            <span className="flex items-center gap-1.5 text-emerald-400 font-sans text-[10px]">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Live
+            </span>
           </div>
         </div>
       </aside>
