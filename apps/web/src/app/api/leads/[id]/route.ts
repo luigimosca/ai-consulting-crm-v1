@@ -1,5 +1,18 @@
 import { NextResponse } from 'next/server';
-import { db, leads, enrichmentData, demoRequests } from '@ai-crm/db';
+import { 
+  db, 
+  leads, 
+  enrichmentData, 
+  demoRequests, 
+  enrichmentRuns, 
+  websiteAnalysis, 
+  publicContacts, 
+  financialIndicators, 
+  reviewsSignals, 
+  growthSignals, 
+  enrichmentSources, 
+  chatMessages 
+} from '@ai-crm/db';
 import { eq, desc } from 'drizzle-orm';
 import { calculateScore } from '@ai-crm/ai';
 
@@ -98,6 +111,23 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
+
+    // Cascade delete related records
+    try {
+      db.delete(websiteAnalysis).where(eq(websiteAnalysis.leadId, id)).run();
+      db.delete(publicContacts).where(eq(publicContacts.leadId, id)).run();
+      db.delete(financialIndicators).where(eq(financialIndicators.leadId, id)).run();
+      db.delete(reviewsSignals).where(eq(reviewsSignals.leadId, id)).run();
+      db.delete(growthSignals).where(eq(growthSignals.leadId, id)).run();
+      db.delete(enrichmentSources).where(eq(enrichmentSources.leadId, id)).run();
+      db.delete(enrichmentRuns).where(eq(enrichmentRuns.leadId, id)).run();
+      db.delete(enrichmentData).where(eq(enrichmentData.leadId, id)).run();
+      db.delete(demoRequests).where(eq(demoRequests.leadId, id)).run();
+      db.delete(chatMessages).where(eq(chatMessages.leadId, id)).run();
+    } catch (cascadeErr) {
+      console.warn('Cascade delete note:', cascadeErr);
+    }
+
     db.delete(leads).where(eq(leads.id, id)).run();
     return NextResponse.json({ success: true });
   } catch (error) {

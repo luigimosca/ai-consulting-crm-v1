@@ -30,7 +30,10 @@ export default function LeadsPage() {
   const fetchLeads = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/leads');
+      const res = await fetch(`/api/leads?t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
       const data = await res.json();
       setLeads(data.leads || []);
     } catch (err) {

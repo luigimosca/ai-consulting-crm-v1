@@ -4,13 +4,63 @@ import * as schema from './schema';
 import path from 'path';
 import fs from 'fs';
 
-// Resolve database file path in project root
-const dbPath = process.env.DATABASE_PATH || path.resolve(process.cwd(), 'sqlite.db');
+function getCanonicalDatabasePath(): string {
+  if (process.env.DATABASE_PATH) {
+    return process.env.DATABASE_PATH;
+  }
+
+  // Check upwards from process.cwd() for the monorepo root
+  let currentDir = process.cwd();
+  for (let i = 0; i < 5; i++) {
+    const pkgPath = path.join(currentDir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        if (pkg.workspaces || pkg.name === 'ai-consulting-crm-v1') {
+          return path.join(currentDir, 'sqlite.db');
+        }
+      } catch {}
+    }
+    const parent = path.dirname(currentDir);
+    if (parent === currentDir) break;
+    currentDir = parent;
+  }
+
+  // Check upwards from __dirname for the monorepo root
+  let dirFromModule = __dirname;
+  for (let i = 0; i < 5; i++) {
+    const pkgPath = path.join(dirFromModule, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        if (pkg.workspaces || pkg.name === 'ai-consulting-crm-v1') {
+          return path.join(dirFromModule, 'sqlite.db');
+        }
+      } catch {}
+    }
+    const parent = path.dirname(dirFromModule);
+    if (parent === dirFromModule) break;
+    dirFromModule = parent;
+  }
+
+  return path.resolve(process.cwd(), 'sqlite.db');
+}
+
+// Resolve canonical database file path
+const dbPath = getCanonicalDatabasePath();
 
 // Ensure directory exists
 const dir = path.dirname(dbPath);
 if (!fs.existsSync(dir)) {
   fs.mkdirSync(dir, { recursive: true });
+}
+
+// If root sqlite.db doesn't exist but apps/web/sqlite.db exists, copy it over
+const altWebDbPath = path.resolve(dir, 'apps', 'web', 'sqlite.db');
+if (!fs.existsSync(dbPath) && fs.existsSync(altWebDbPath)) {
+  try {
+    fs.copyFileSync(altWebDbPath, dbPath);
+  } catch {}
 }
 
 const sqlite = new Database(dbPath);

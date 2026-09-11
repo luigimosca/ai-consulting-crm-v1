@@ -37,12 +37,16 @@ export function LeadTable({ leads }: { leads: LeadItem[] }) {
   const [sectorFilter, setSectorFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  const filteredLeads = leads.filter((lead) => {
-    const matchesSearch =
-      lead.companyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (lead.city && lead.city.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (lead.email && lead.email.toLowerCase().includes(searchTerm.toLowerCase()));
+  const safeLeads = Array.isArray(leads) ? leads : [];
 
+  const filteredLeads = safeLeads.filter((lead) => {
+    if (!lead) return false;
+    const name = (lead.companyName || '').toLowerCase();
+    const city = (lead.city || '').toLowerCase();
+    const email = (lead.email || '').toLowerCase();
+    const q = (searchTerm || '').toLowerCase().trim();
+
+    const matchesSearch = !q || name.includes(q) || city.includes(q) || email.includes(q);
     const matchesSector = sectorFilter === 'all' || lead.sector === sectorFilter;
     const matchesStatus = statusFilter === 'all' || lead.status === statusFilter;
 

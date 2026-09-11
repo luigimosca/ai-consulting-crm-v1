@@ -22,16 +22,25 @@ export async function GET(request: Request) {
       filtered = filtered.filter((l) => l.status === status);
     }
     if (search) {
-      const q = search.toLowerCase();
+      const q = search.toLowerCase().trim();
       filtered = filtered.filter(
         (l) =>
-          l.companyName.toLowerCase().includes(q) ||
+          (l.companyName && l.companyName.toLowerCase().includes(q)) ||
           (l.city && l.city.toLowerCase().includes(q)) ||
           (l.email && l.email.toLowerCase().includes(q))
       );
     }
 
-    return NextResponse.json({ leads: filtered, count: filtered.length });
+    return NextResponse.json(
+      { leads: filtered, count: filtered.length },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
+      }
+    );
   } catch (error) {
     console.error('Error fetching leads:', error);
     return NextResponse.json({ error: 'Errore nel recupero dei lead' }, { status: 500 });

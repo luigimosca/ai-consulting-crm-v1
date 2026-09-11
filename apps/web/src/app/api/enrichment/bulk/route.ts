@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { db, leads } from '@ai-crm/db';
 import { eq, inArray } from 'drizzle-orm';
 import { EnrichmentOrchestrator } from '@ai-crm/ai';
+import { saveEnrichmentDossierToDb } from '@/lib/enrichment-db';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,7 +42,24 @@ export async function POST(request: Request) {
 
     for (const l of targetLeads) {
       try {
-        const dossier = await orchestrator.runEnrichment(l.id);
+        const leadInput = {
+          id: l.id,
+          companyName: l.companyName,
+          website: l.website,
+          phone: l.phone,
+          email: l.email,
+          address: l.address,
+          city: l.city,
+          sector: l.sector,
+          notes: l.notes,
+          source: l.source,
+        };
+
+        const dossier = await orchestrator.runEnrichment(leadInput);
+        
+        // Persist to database
+        saveEnrichmentDossierToDb({ dossier, leadInput });
+
         results.push({
           leadId: l.id,
           companyName: l.companyName,
