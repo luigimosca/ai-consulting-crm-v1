@@ -339,14 +339,25 @@ export const LEAD_GEN_SECTORS: SectorDefinition[] = [
       {
         id: 'medici_dentisti',
         label: 'Studi Medici, Dentisti & Cliniche',
-        description: 'Dentisti, odontoiatri, poliambulatori, specialisti',
+        description: 'Dentisti, odontoiatri, fisioterapisti, poliambulatori, specialisti',
         osmClauses: [
           'node["amenity"="dentist"]',
           'way["amenity"="dentist"]',
           'node["amenity"="doctors"]',
           'way["amenity"="doctors"]',
-          'node["healthcare"="dentist"]',
           'node["amenity"="clinic"]',
+          'way["amenity"="clinic"]',
+          'node["healthcare"="dentist"]',
+          'way["healthcare"="dentist"]',
+          'node["healthcare"="doctor"]',
+          'way["healthcare"="doctor"]',
+          'node["healthcare"="clinic"]',
+          'way["healthcare"="clinic"]',
+          'node["healthcare"="physiotherapist"]',
+          'way["healthcare"="physiotherapist"]',
+          'node["healthcare"="centre"]',
+          'way["healthcare"="centre"]',
+          'node["healthcare"="rehabilitation"]',
         ],
       },
       {
@@ -505,7 +516,10 @@ export function matchOsmTagsToCategory(
   if (amenity === 'dentist' || healthcare === 'dentist') {
     return { crmSector: 'local_services', categoryGroup: 'Salute & Sanità', categoryLabel: 'Studio Dentistico', subcategoryKey: 'medici_dentisti' };
   }
-  if (amenity === 'doctors' || amenity === 'clinic') {
+  if (healthcare === 'physiotherapist' || healthcare === 'physiotherapy' || healthcare === 'rehabilitation') {
+    return { crmSector: 'local_services', categoryGroup: 'Salute & Sanità', categoryLabel: 'Fisioterapia & Riabilitazione', subcategoryKey: 'medici_dentisti' };
+  }
+  if (amenity === 'doctors' || amenity === 'clinic' || healthcare === 'doctor' || healthcare === 'clinic' || healthcare === 'centre') {
     return { crmSector: 'local_services', categoryGroup: 'Salute & Sanità', categoryLabel: 'Studio Medico / Clinica', subcategoryKey: 'medici_dentisti' };
   }
   if (leisure === 'fitness_centre' || leisure === 'sports_centre') {
