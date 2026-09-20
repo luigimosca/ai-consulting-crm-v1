@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { db, leads, companies, demoRequests } from '@ai-crm/db';
+import { db, leads, companies, demoRequests, websiteAnalysis } from '@ai-crm/db';
 import { desc, eq, and, sql } from 'drizzle-orm';
 import { calculateScore } from '@ai-crm/ai';
 
@@ -13,8 +13,52 @@ export async function GET(request: Request) {
     const search = searchParams.get('search');
 
     const allLeads = db.select().from(leads).orderBy(desc(leads.createdAt)).all();
+    
+    // Recupera analisi website per badge e-commerce e tech stack
+    let analysisByLead = new Map<string, any>();
+    try {
+      const allWebAnalysis = db.select().from(websiteAnalysis).all();
+      for (const w of allWebAnalysis) {
+        analysisByLead.set(w.leadId, w);
+      }
+    } catch (e) {
+      // websiteAnalysis table might be empty
+    }
 
-    let filtered = allLeads;
+    const enrichedLeads = allLeads.map((l) => {
+      const w = analysisByLead.get(l.id);
+      let isEcom = Boolean(w?.isEcommerce || l.sector === 'ecommerce');
+      let platform = w?.cms || null;
+
+      if (!isEcom && l.notes) {
+        if (/shopify/i.test(l.notes)) {
+          isEcom = true;
+          platform = 'Shopify';
+        } else if (/woocommerce/i.test(l.notes)) {
+          isEcom = true;
+          platform = 'WooCommerce';
+        } else if (/prestashop/i.test(l.notes)) {
+          isEcom = true;
+          platform = 'PrestaShop';
+        } else if (/magento/i.test(l.notes)) {
+          isEcom = true;
+          platform = 'Magento';
+        } else if (/ecommerce|e-commerce|carrello|shop online/i.test(l.notes)) {
+          isEcom = true;
+        }
+      }
+
+      return {
+        ...l,
+        isEcommerce: isEcom,
+        ecommercePlatform: platform,
+        cms: w?.cms || null,
+        hasWhatsapp: Boolean(w?.hasWhatsapp),
+        hasBooking: Boolean(w?.hasBooking),
+      };
+    });
+
+    let filtered = enrichedLeads;
     if (sector && sector !== 'all') {
       filtered = filtered.filter((l) => l.sector === sector);
     }
@@ -27,7 +71,8 @@ export async function GET(request: Request) {
         (l) =>
           (l.companyName && l.companyName.toLowerCase().includes(q)) ||
           (l.city && l.city.toLowerCase().includes(q)) ||
-          (l.email && l.email.toLowerCase().includes(q))
+          (l.email && l.email.toLowerCase().includes(q)) ||
+          (l.ecommercePlatform && l.ecommercePlatform.toLowerCase().includes(q))
       );
     }
 

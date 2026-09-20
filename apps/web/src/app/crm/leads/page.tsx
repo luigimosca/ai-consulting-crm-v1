@@ -118,7 +118,7 @@ export default function LeadsPage() {
       />
 
       {/* Leads Table */}
-      <LeadTable leads={leads} />
+      <LeadTable leads={leads} onRefresh={fetchLeads} />
 
       {/* Create Lead Modal Dialog */}
       <Dialog

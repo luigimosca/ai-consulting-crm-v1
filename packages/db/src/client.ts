@@ -9,6 +9,11 @@ function getCanonicalDatabasePath(): string {
     return process.env.DATABASE_PATH;
   }
 
+  // Support Fly.io mounted persistent volume at /data
+  if (fs.existsSync('/data')) {
+    return '/data/sqlite.db';
+  }
+
   // Check upwards from process.cwd() for the monorepo root
   let currentDir = process.cwd();
   for (let i = 0; i < 5; i++) {
@@ -52,15 +57,26 @@ const dbPath = getCanonicalDatabasePath();
 // Ensure directory exists
 const dir = path.dirname(dbPath);
 if (!fs.existsSync(dir)) {
-  fs.mkdirSync(dir, { recursive: true });
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch {}
 }
 
-// If root sqlite.db doesn't exist but apps/web/sqlite.db exists, copy it over
-const altWebDbPath = path.resolve(dir, 'apps', 'web', 'sqlite.db');
-if (!fs.existsSync(dbPath) && fs.existsSync(altWebDbPath)) {
-  try {
-    fs.copyFileSync(altWebDbPath, dbPath);
-  } catch {}
+// If persistent volume /data/sqlite.db doesn't exist yet, seed it from /app/sqlite.db or local sqlite.db
+if (!fs.existsSync(dbPath)) {
+  const seedCandidates = [
+    '/app/sqlite.db',
+    path.resolve(process.cwd(), 'sqlite.db'),
+    path.resolve(process.cwd(), 'apps', 'web', 'sqlite.db'),
+  ];
+  for (const cand of seedCandidates) {
+    if (cand !== dbPath && fs.existsSync(cand)) {
+      try {
+        fs.copyFileSync(cand, dbPath);
+        break;
+      } catch {}
+    }
+  }
 }
 
 const sqlite = new Database(dbPath);

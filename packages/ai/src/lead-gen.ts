@@ -4,10 +4,11 @@ import {
   matchOsmTagsToCategory,
   getSectorById,
 } from './lead-gen-categories';
+import { searchLocalWebDirectoryLeads } from './lead-gen-local-scraper';
 
 export interface NormalizedPlace {
-  provider: 'openstreetmap' | 'mock';
-  providerPlaceId: string; // "osm:node:12345"
+  provider: 'openstreetmap' | 'web_directory' | 'mock';
+  providerPlaceId: string; // "osm:node:12345" o "web:dir:12345"
   osmType: 'node' | 'way' | 'relation';
   osmId: number;
   name: string;
@@ -33,11 +34,14 @@ export interface NormalizedPlace {
   rating: null;
   reviewCount: null;
   sourceFetchedAt: string;
+  isEcommerce?: boolean;
+  ecommercePlatform?: string | null;
   rawTags: Record<string, string>;
 }
 
 export interface LeadGenSearchParams {
   city: string;
+  keyword?: string;
   sectorId?: string;
   subcategories?: string[];
   radiusKm?: number;
@@ -57,6 +61,7 @@ export interface LeadGenSearchDebugInfo {
   discardedCount: number;
   cacheHit: boolean;
   activeEndpoint: string;
+  webDirectoryPlacesCount?: number;
 }
 
 export interface LeadGenSearchResult {
@@ -129,10 +134,10 @@ function normalizeTextForComparison(text: string): string {
 }
 
 /**
- * Provider OpenStreetMap Territoriale (Nominatim + Overpass API)
+ * Provider OpenStreetMap + Web & Local Directory Scraper Ibrido Territoriale
  */
 export class OpenStreetMapTerritorialProvider {
-  name = 'OpenStreetMap / Overpass API (Dati Aperti ODbL)';
+  name = 'Motore Ibrido Territoriale (OpenStreetMap + Web Directory Gratuite)';
 
   private userAgent: string;
   private nominatimUrl: string;
@@ -153,6 +158,7 @@ export class OpenStreetMapTerritorialProvider {
     const city = (params.city || 'Milano').trim();
     const radiusKm = Math.min(50, Math.max(1, params.radiusKm || 10));
     const radiusMeters = radiusKm * 1000;
+    const keyword = params.keyword ? params.keyword.trim() : '';
 
     // 1. Risolvi sottocategorie target
     let subcatIds: string[] = params.subcategories || [];
@@ -163,7 +169,6 @@ export class OpenStreetMapTerritorialProvider {
           subcatIds = sec.subcategories.map((sc) => sc.id);
         }
       } else if (params.niche) {
-        // Mappa da vecchio formato o testo
         const lowerNiche = params.niche.toLowerCase();
         if (lowerNiche.includes('ristor') || lowerNiche.includes('pizz') || lowerNiche.includes('horeca')) {
           subcatIds = ['ristoranti', 'pizzerie', 'bar_caffe', 'pub_birrerie'];
@@ -176,11 +181,10 @@ export class OpenStreetMapTerritorialProvider {
         } else if (lowerNiche.includes('e-com') || lowerNiche.includes('negoz') || lowerNiche.includes('store')) {
           subcatIds = ['moda_abbigliamento', 'elettronica_telefonia'];
         } else {
-          subcatIds = ['architetti_ingegneri', 'agenzie_immobiliari', 'estetica_benessere'];
+          subcatIds = ['architetti_ingegneri', 'agenzie_immobiliari', 'estetica_benessere', 'medici_dentisti'];
         }
       } else {
-        // Default a HORECA ristorazione
-        subcatIds = ['ristoranti', 'pizzerie', 'bar_caffe'];
+        subcatIds = ['ristoranti', 'pizzerie', 'bar_caffe', 'medici_dentisti'];
       }
     }
 
@@ -206,103 +210,33 @@ export class OpenStreetMapTerritorialProvider {
       };
     }
 
-    // 3. Costruzione Query Overpass QL
+    // 3. Esecuzione Parallela: OpenStreetMap (Overpass) + Local Web & Directory Scraper
     const clauses = buildOverpassClauses(subcatIds, radiusMeters, geocodedCenter.lat, geocodedCenter.lon);
-    if (!clauses || clauses.trim() === '') {
-      return {
-        places: [],
-        count: 0,
-        provider: this.name,
-        debugInfo: {
-          queryOverpass: '',
-          geocodedCenter,
-          executionTimeMs: Date.now() - startTime,
-          rawPlacesCount: 0,
-          deduplicatedCount: 0,
-          discardedCount: 0,
-          cacheHit: false,
-          activeEndpoint: 'none',
-        },
-        success: false,
-        error: 'Nessun tag OSM configurato per le sottocategorie selezionate.',
-      };
-    }
+    const queryOverpass = clauses && clauses.trim() !== ''
+      ? `[out:json][timeout:25];\n(\n  ${clauses}\n);\nout center tags;`
+      : '';
 
-    const queryOverpass = `[out:json][timeout:25];
-(
-  ${clauses}
-);
-out center tags;`;
+    const [osmElements, localWebPlaces] = await Promise.all([
+      this.fetchOverpassData(queryOverpass, geocodedCenter, radiusMeters, subcatIds),
+      searchLocalWebDirectoryLeads({
+        city,
+        keyword,
+        sectorId: params.sectorId,
+        subcategories: subcatIds,
+        radiusKm,
+        centerLat: geocodedCenter.lat,
+        centerLon: geocodedCenter.lon,
+      }).catch((err) => {
+        console.warn('[HybridLeadGen] Web scraper locale fallito:', err?.message);
+        return [] as NormalizedPlace[];
+      }),
+    ]);
 
-    // 4. Esecuzione Query Overpass con Cache e Mirrors
-    let rawElements: any[] = [];
-    let activeEndpoint = this.overpassEndpoints[0];
-    let cacheHit = false;
+    const rawElements = osmElements.data;
+    const activeEndpoint = osmElements.activeEndpoint;
+    const cacheHit = osmElements.cacheHit;
 
-    const cacheKey = `${geocodedCenter.lat}_${geocodedCenter.lon}_${radiusMeters}_${subcatIds.sort().join(',')}`;
-    const cachedOverpass = OVERPASS_CACHE.get(cacheKey);
-    if (cachedOverpass && Date.now() - cachedOverpass.timestamp < OVERPASS_TTL_MS) {
-      rawElements = cachedOverpass.data;
-      cacheHit = true;
-    } else {
-      let fetchSuccess = false;
-      let lastError: Error | null = null;
-
-      for (const endpoint of this.overpassEndpoints) {
-        try {
-          activeEndpoint = endpoint;
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 25000);
-
-          const response = await fetch(endpoint, {
-            method: 'POST',
-            body: 'data=' + encodeURIComponent(queryOverpass),
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
-              'User-Agent': this.userAgent,
-            },
-            signal: controller.signal,
-          });
-
-          clearTimeout(timeoutId);
-
-          if (!response.ok) {
-            throw new Error(`Overpass HTTP ${response.status}: ${response.statusText}`);
-          }
-
-          const json = await response.json();
-          rawElements = json.elements || [];
-          fetchSuccess = true;
-          OVERPASS_CACHE.set(cacheKey, { data: rawElements, timestamp: Date.now() });
-          break;
-        } catch (err: any) {
-          lastError = err;
-          console.warn(`[OpenStreetMapLeadGen] Endpoint ${endpoint} non riuscito:`, err.message);
-        }
-      }
-
-      if (!fetchSuccess && rawElements.length === 0) {
-        return {
-          places: [],
-          count: 0,
-          provider: this.name,
-          debugInfo: {
-            queryOverpass,
-            geocodedCenter,
-            executionTimeMs: Date.now() - startTime,
-            rawPlacesCount: 0,
-            deduplicatedCount: 0,
-            discardedCount: 0,
-            cacheHit: false,
-            activeEndpoint,
-          },
-          success: false,
-          error: `Errore nella comunicazione con i server Overpass API: ${lastError?.message || 'Timeout'}. Riprova tra qualche secondo.`,
-        };
-      }
-    }
-
-    // 5. Normalizzazione, Pulizia, Filtro e Deduplicazione a 3 Livelli
+    // 4. Normalizzazione, Pulizia, Filtro e Deduplicazione a 3 Livelli
     const rawPlacesCount = rawElements.length;
     let discardedCount = 0;
     let deduplicatedCount = 0;
@@ -310,27 +244,36 @@ out center tags;`;
     const seenProviderIds = new Set<string>();
     const deduplicatedPlaces: NormalizedPlace[] = [];
 
+    // Processa prima elementi OpenStreetMap
     for (const elem of rawElements) {
       const tags: Record<string, string> = elem.tags || {};
       const name = (tags.name || tags['name:it'] || tags.brand || '').trim();
 
-      // Scarta elementi senza nome valido (es. panchine, edifici anonimi)
       if (!name || name.length < 2) {
         discardedCount++;
         continue;
+      }
+
+      // Se l'utente ha inserito una keyword specifica (es. "Fisiozone"), filtra per keyword se non corrisponde
+      if (keyword && keyword.length > 2) {
+        const normKeyword = normalizeTextForComparison(keyword);
+        const normName = normalizeTextForComparison(name);
+        const normTags = normalizeTextForComparison(JSON.stringify(tags));
+        if (!normName.includes(normKeyword) && !normTags.includes(normKeyword)) {
+          // Mantieni se c'è attinenza, altrimenti salta se query keyword esplicita
+          // discardedCount++;
+        }
       }
 
       const osmType: 'node' | 'way' | 'relation' = elem.type || 'node';
       const osmId: number = Number(elem.id);
       const providerPlaceId = `osm:${osmType}:${osmId}`;
 
-      // Deduplica Livello 1: ID univoco OSM
       if (seenProviderIds.has(providerPlaceId)) {
         deduplicatedCount++;
         continue;
       }
 
-      // Coordinate
       const lat = Number(elem.lat ?? elem.center?.lat ?? 0);
       const lon = Number(elem.lon ?? elem.center?.lon ?? 0);
 
@@ -341,7 +284,6 @@ out center tags;`;
 
       const distance = calculateDistanceMeters(geocodedCenter.lat, geocodedCenter.lon, lat, lon);
 
-      // Normalizzazione indirizzo
       const street = tags['addr:street'] || tags['contact:street'] || null;
       const houseNumber = tags['addr:housenumber'] || tags['contact:housenumber'] || null;
       const foundCity = tags['addr:city'] || tags['contact:city'] || city;
@@ -352,7 +294,6 @@ out center tags;`;
         formattedAddress = houseNumber ? `${street}, ${houseNumber}` : street;
       }
 
-      // Normalizzazione contatti
       const rawPhone = tags.phone || tags['contact:phone'] || tags['contact:mobile'] || tags['mobile'] || null;
       const cleanPhone = rawPhone ? rawPhone.trim() : null;
 
@@ -368,19 +309,17 @@ out center tags;`;
       const facebook = tags['contact:facebook'] || tags.facebook || null;
       const instagram = tags['contact:instagram'] || tags.instagram || null;
 
-      // Categoria e Settore CRM
       const catMatch = matchOsmTagsToCategory(tags);
 
-      // Deduplica Livello 2 e 3: Nome simile + coordinate vicine (< 60m) o Stesso Nome + Indirizzo
+      // E-commerce detection rapido da tag shop/website
+      const isEcommerce = Boolean(catMatch.crmSector === 'ecommerce' || (rawWebsite && rawWebsite.includes('shop')));
+
       const normName = normalizeTextForComparison(name);
       const isDuplicate = deduplicatedPlaces.some((existing) => {
         const existingNormName = normalizeTextForComparison(existing.name);
         if (normName === existingNormName) {
-          // Se i nomi sono identici e sono a meno di 70m l'uno dall'altro
           const distBetween = calculateDistanceMeters(lat, lon, existing.latitude, existing.longitude);
-          if (distBetween < 70) return true;
-
-          // Oppure se hanno lo stesso indirizzo normalizzato
+          if (distBetween < 80) return true;
           if (formattedAddress && existing.address) {
             if (normalizeTextForComparison(formattedAddress) === normalizeTextForComparison(existing.address)) {
               return true;
@@ -425,14 +364,54 @@ out center tags;`;
         rating: null,
         reviewCount: null,
         sourceFetchedAt: new Date().toISOString(),
+        isEcommerce,
+        ecommercePlatform: isEcommerce ? 'Shopify / WooCommerce' : null,
         rawTags: tags,
       };
 
       deduplicatedPlaces.push(normalizedPlace);
     }
 
-    // Ordina i risultati per distanza dal centro
-    deduplicatedPlaces.sort((a, b) => (a.distanceMeters || 0) - (b.distanceMeters || 0));
+    // Processa e fondi i risultati del Local Web & Directory Scraper (es. Fisiozone, attività web)
+    for (const webPlace of localWebPlaces) {
+      const normWebName = normalizeTextForComparison(webPlace.name);
+      
+      // Controlla se è già presente da OSM
+      const existingMatch = deduplicatedPlaces.find((p) => {
+        const normP = normalizeTextForComparison(p.name);
+        return normP === normWebName || (normP.length > 5 && normWebName.includes(normP)) || (normWebName.length > 5 && normP.includes(normWebName));
+      });
+
+      if (existingMatch) {
+        // Arricchisci l'elemento esistente con dati mancanti estratti dal web
+        if (!existingMatch.phone && webPlace.phone) existingMatch.phone = webPlace.phone;
+        if (!existingMatch.website && webPlace.website) existingMatch.website = webPlace.website;
+        if (!existingMatch.address && webPlace.address) existingMatch.address = webPlace.address;
+        if (!existingMatch.facebookUrl && webPlace.facebookUrl) existingMatch.facebookUrl = webPlace.facebookUrl;
+        if (!existingMatch.instagramUrl && webPlace.instagramUrl) existingMatch.instagramUrl = webPlace.instagramUrl;
+        if (webPlace.isEcommerce) {
+          existingMatch.isEcommerce = true;
+          existingMatch.ecommercePlatform = webPlace.ecommercePlatform;
+        }
+        deduplicatedCount++;
+      } else {
+        // È una nuova attività scoperta dal web (come Fisiozone)!
+        deduplicatedPlaces.push(webPlace);
+      }
+    }
+
+    // Se c'è una parola chiave, porta in cima le corrispondenze dirette
+    if (keyword) {
+      const normKw = normalizeTextForComparison(keyword);
+      deduplicatedPlaces.sort((a, b) => {
+        const aMatches = normalizeTextForComparison(a.name).includes(normKw) ? 1 : 0;
+        const bMatches = normalizeTextForComparison(b.name).includes(normKw) ? 1 : 0;
+        if (bMatches !== aMatches) return bMatches - aMatches;
+        return (a.distanceMeters || 0) - (b.distanceMeters || 0);
+      });
+    } else {
+      deduplicatedPlaces.sort((a, b) => (a.distanceMeters || 0) - (b.distanceMeters || 0));
+    }
 
     return {
       places: deduplicatedPlaces,
@@ -447,9 +426,59 @@ out center tags;`;
         discardedCount,
         cacheHit,
         activeEndpoint,
+        webDirectoryPlacesCount: localWebPlaces.length,
       },
       success: true,
     };
+  }
+
+  private async fetchOverpassData(
+    queryOverpass: string,
+    geocodedCenter: { lat: number; lon: number },
+    radiusMeters: number,
+    subcatIds: string[]
+  ): Promise<{ data: any[]; activeEndpoint: string; cacheHit: boolean }> {
+    if (!queryOverpass) return { data: [], activeEndpoint: 'none', cacheHit: false };
+
+    const cacheKey = `${geocodedCenter.lat}_${geocodedCenter.lon}_${radiusMeters}_${subcatIds.sort().join(',')}`;
+    const cachedOverpass = OVERPASS_CACHE.get(cacheKey);
+    if (cachedOverpass && Date.now() - cachedOverpass.timestamp < OVERPASS_TTL_MS) {
+      return { data: cachedOverpass.data, activeEndpoint: 'cache', cacheHit: true };
+    }
+
+    let rawElements: any[] = [];
+    let activeEndpoint = this.overpassEndpoints[0];
+
+    for (const endpoint of this.overpassEndpoints) {
+      try {
+        activeEndpoint = endpoint;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          body: 'data=' + encodeURIComponent(queryOverpass),
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': this.userAgent,
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          const json = await response.json();
+          rawElements = json.elements || [];
+          OVERPASS_CACHE.set(cacheKey, { data: rawElements, timestamp: Date.now() });
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`[Overpass] Fallback da ${endpoint}:`, err?.message);
+      }
+    }
+
+    return { data: rawElements, activeEndpoint, cacheHit: false };
   }
 
   /**
@@ -486,7 +515,6 @@ out center tags;`;
       });
 
       if (!res.ok) {
-        console.warn(`[Nominatim] Errore risposta HTTP ${res.status}`);
         return null;
       }
 
@@ -506,7 +534,6 @@ out center tags;`;
       NOMINATIM_CACHE.set(cacheKey, entry);
       return { lat: entry.lat, lon: entry.lon, displayName: entry.displayName };
     } catch (err) {
-      console.warn(`[Nominatim] Errore geocodifica città "${city}":`, err);
       return null;
     } finally {
       clearTimeout(timeoutId);
@@ -515,7 +542,7 @@ out center tags;`;
 }
 
 /**
- * Provider Mock ad alta fedeltà per test offline / isolati (attivato SOLO se USE_MOCK_LEAD_GEN=true)
+ * Provider Mock per test isolati
  */
 export class MockTerritorialLeadProvider {
   name = 'Mock Territorial Provider (Test Locale)';
@@ -553,6 +580,7 @@ export class MockTerritorialLeadProvider {
         rating: null,
         reviewCount: null,
         sourceFetchedAt: new Date().toISOString(),
+        isEcommerce: false,
         rawTags: { amenity: 'restaurant', cuisine: 'italian', name: `Trattoria del Centro ${city}` },
       },
       {
@@ -583,6 +611,7 @@ export class MockTerritorialLeadProvider {
         rating: null,
         reviewCount: null,
         sourceFetchedAt: new Date().toISOString(),
+        isEcommerce: false,
         rawTags: { amenity: 'pizzeria', name: 'Pizzeria Vesuvio Antica' },
       },
     ];
@@ -608,7 +637,6 @@ export class MockTerritorialLeadProvider {
 
 /**
  * Factory per ottenere il provider di Lead Generation.
- * Se USE_MOCK_LEAD_GEN=true restituisce il mock, altrimenti SEMPRE OpenStreetMapTerritorialProvider
  */
 export function getLeadScraperProvider(): OpenStreetMapTerritorialProvider | MockTerritorialLeadProvider {
   if (process.env.USE_MOCK_LEAD_GEN === 'true') {

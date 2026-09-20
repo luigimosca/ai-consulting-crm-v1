@@ -49,11 +49,12 @@ export default function LeadGenPage() {
     'bar_caffe',
   ]);
   const [city, setCity] = useState('Pompei');
+  const [keyword, setKeyword] = useState('');
   const [radiusKm, setRadiusKm] = useState('5');
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState<NormalizedPlace[]>([]);
   const [debugInfo, setDebugInfo] = useState<any>(null);
-  const [activeProvider, setActiveProvider] = useState<string>('OpenStreetMap / Overpass API (Dati Aperti ODbL)');
+  const [activeProvider, setActiveProvider] = useState<string>('Motore Ibrido Territoriale (OpenStreetMap + Web Directory Gratuite)');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showDebug, setShowDebug] = useState(false);
 
@@ -61,6 +62,7 @@ export default function LeadGenPage() {
   const [filterPhoneOnly, setFilterPhoneOnly] = useState(false);
   const [filterWebsiteOnly, setFilterWebsiteOnly] = useState(false);
   const [filterEmailOnly, setFilterEmailOnly] = useState(false);
+  const [filterEcommerceOnly, setFilterEcommerceOnly] = useState(false);
   const [filterHoursOnly, setFilterHoursOnly] = useState(false);
 
   // Mappa dei lead importati
@@ -120,6 +122,7 @@ export default function LeadGenPage() {
           sectorId: selectedSectorId,
           subcategories: selectedSubcategories,
           city: city.trim(),
+          keyword: keyword.trim(),
           radiusKm: Number(radiusKm),
         }),
       });
@@ -144,8 +147,9 @@ export default function LeadGenPage() {
   const handleImportLead = async (place: NormalizedPlace) => {
     try {
       const notesParts = [
-        `Lead territoriale OpenStreetMap (${place.categoryLabel})`,
-        place.osmUrl ? `OSM: ${place.osmUrl}` : null,
+        `Lead territoriale (${place.provider === 'web_directory' ? 'Web Directory' : 'OpenStreetMap'} - ${place.categoryLabel})`,
+        place.osmUrl ? `Link: ${place.osmUrl}` : null,
+        place.isEcommerce ? `E-commerce: ${place.ecommercePlatform || 'Attivo'}` : null,
         place.openingHours ? `Orari: ${place.openingHours}` : null,
         place.email ? `Email: ${place.email}` : null,
       ].filter(Boolean);
@@ -156,7 +160,7 @@ export default function LeadGenPage() {
         body: JSON.stringify({
           companyName: place.name,
           website: place.website,
-          source: 'maps',
+          source: place.provider === 'web_directory' ? 'web_directory' : 'maps',
           sector: place.crmSector,
           address: place.address,
           city: place.city || city,
@@ -190,16 +194,17 @@ export default function LeadGenPage() {
       if (filterPhoneOnly && !item.phone) return false;
       if (filterWebsiteOnly && !item.website) return false;
       if (filterEmailOnly && !item.email) return false;
+      if (filterEcommerceOnly && !item.isEcommerce) return false;
       if (filterHoursOnly && !item.openingHours) return false;
       return true;
     });
-  }, [results, filterPhoneOnly, filterWebsiteOnly, filterEmailOnly, filterHoursOnly]);
+  }, [results, filterPhoneOnly, filterWebsiteOnly, filterEmailOnly, filterEcommerceOnly, filterHoursOnly]);
 
   return (
     <div className="space-y-8 pb-20">
       <Header
-        title="Lead Generation Territoriale da Dati Aperti"
-        description="Estrai e qualifica attività reali sul territorio interrogando i dati aperti geospaziali di OpenStreetMap & Overpass API. Nessuna stima o recensione inventata."
+        title="Lead Generation Territoriale & Web Discovery"
+        description="Estrai e qualifica attività reali sul territorio interrogando simultaneamente OpenStreetMap & Web Directory Locali Italiane (zero costi API). Rilevamento automatico di e-commerce e professionisti locali."
       />
 
       {/* Provider Info Banner */}
@@ -210,18 +215,18 @@ export default function LeadGenPage() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-white">Motore Geospaziale Open Data:</span>
-              <span className="text-emerald-400 font-medium">OpenStreetMap &bull; Overpass API &bull; Nominatim</span>
+              <span className="font-semibold text-white">Motore Ibrido Attivo:</span>
+              <span className="text-emerald-400 font-medium">OpenStreetMap &bull; Web & Local Directory Scraper</span>
             </div>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              100% Dati Aperti Reali del Territorio &bull; Zero API a Pagamento &bull; Licenza ODbL
+              100% Gratuito &bull; Copertura Completa Attività Reali &bull; Zero Rischio Addebiti
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 text-slate-400 text-[11px]">
           <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>Pronto all&apos;uso (Nessuna API Key richiesta)</span>
+          <span>Pronto all&apos;uso (Senza Carta di Credito)</span>
         </div>
       </div>
 
@@ -238,6 +243,25 @@ export default function LeadGenPage() {
       {/* Form di Ricerca Territoriale */}
       <Card className="bg-slate-900/90 border-slate-800 p-6 shadow-xl space-y-6">
         <form onSubmit={handleSearch} className="space-y-6">
+          {/* Riga 0: Ricerca Libera per Parola Chiave / Brand */}
+          <div className="space-y-1.5 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
+            <div className="flex flex-wrap items-center justify-between gap-1">
+              <label className="block text-xs font-semibold text-slate-200">
+                🔍 Cerca per Parola Chiave, Brand o Nome Attività (Opzionale)
+              </label>
+              <span className="text-[11px] text-blue-400 font-medium">Trova aziende sul web anche se assenti da OSM (es. Fisiozone, Pizzeria da Gino)</span>
+            </div>
+            <div className="relative">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                placeholder="Es. Fisiozone, Fisioterapia, Boutique Online, Studio Dentistico..."
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+              />
+            </div>
+          </div>
           {/* Riga 1: Settore Principale, Città e Raggio */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
             <div className="md:col-span-5 space-y-1.5">
@@ -457,6 +481,19 @@ export default function LeadGenPage() {
 
               <button
                 type="button"
+                onClick={() => setFilterEcommerceOnly(!filterEcommerceOnly)}
+                className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                  filterEcommerceOnly
+                    ? 'bg-purple-950/60 border-purple-500 text-purple-300 font-bold'
+                    : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <ShoppingBag className="h-3 w-3" />
+                <span>🛍️ Solo E-commerce</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setFilterHoursOnly(!filterHoursOnly)}
                 className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors flex items-center gap-1.5 ${
                   filterHoursOnly
@@ -480,12 +517,24 @@ export default function LeadGenPage() {
                   className="bg-slate-900/80 border-slate-800 flex flex-col justify-between hover:border-slate-700 transition-colors group shadow-sm"
                 >
                   <div className="p-4 space-y-3.5">
-                    {/* Header Card: Categoria & Distanza */}
+                    {/* Header Card: Categoria, Fonte, E-commerce & Distanza */}
                     <div className="flex items-start justify-between gap-2">
                       <div className="space-y-1">
-                        <Badge variant="secondary" className="text-[10px] font-medium bg-blue-950/60 border-blue-800 text-blue-300">
-                          {place.categoryLabel}
-                        </Badge>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Badge variant="secondary" className="text-[10px] font-medium bg-blue-950/60 border-blue-800 text-blue-300">
+                            {place.categoryLabel}
+                          </Badge>
+                          {place.provider === 'web_directory' && (
+                            <Badge variant="outline" className="text-[9px] bg-purple-950/50 border-purple-700/60 text-purple-300 font-mono">
+                              Web Discovery
+                            </Badge>
+                          )}
+                          {place.isEcommerce && (
+                            <Badge variant="success" className="text-[9px] bg-emerald-950/60 border-emerald-700/60 text-emerald-300 font-medium">
+                              🛍️ E-commerce ({place.ecommercePlatform || 'Attivo'})
+                            </Badge>
+                          )}
+                        </div>
                         <h3 className="text-base font-bold text-white leading-tight">
                           {place.name}
                         </h3>

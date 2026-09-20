@@ -4,6 +4,10 @@ primary_region = "cdg"
 
 [build]
 
+[mounts]
+  source = "data"
+  destination = "/data"
+
 [http_service]
   internal_port = 3005
   force_https = true
@@ -21,3 +25,4 @@ primary_region = "cdg"
 [env]
   NODE_ENV = "production"
   PORT = "3005"
+  DATABASE_PATH = "/data/sqlite.db"

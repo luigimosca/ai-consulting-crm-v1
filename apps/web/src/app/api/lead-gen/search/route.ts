@@ -6,15 +6,17 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { sectorId, subcategories, city, radiusKm = 10, niche } = body;
+    const { sectorId, subcategories, city, radiusKm = 10, niche, keyword, query } = body;
 
     const targetCity = (city || 'Milano').trim();
+    const searchKeyword = (keyword || query || '').trim();
 
     const provider = getLeadScraperProvider();
-    console.log(`[LeadGen API] Avvio ricerca "${provider.name}" per città: "${targetCity}", settore: "${sectorId || niche || 'all'}", raggio: ${radiusKm}km`);
+    console.log(`[LeadGen API] Avvio ricerca "${provider.name}" per città: "${targetCity}", settore: "${sectorId || niche || 'all'}", keyword: "${searchKeyword}", raggio: ${radiusKm}km`);
 
     const result = await provider.search({
       city: targetCity,
+      keyword: searchKeyword || undefined,
       sectorId,
       subcategories,
       radiusKm: Number(radiusKm),
