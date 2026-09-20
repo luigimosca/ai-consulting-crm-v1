@@ -30,7 +30,8 @@ import {
   MinusSquare,
   Loader2,
   Layers,
-  ArrowRight
+  ArrowRight,
+  Users
 } from 'lucide-react';
 
 export interface LeadItem {
@@ -50,6 +51,16 @@ export interface LeadItem {
   cms?: string | null;
   hasWhatsapp?: boolean;
   hasBooking?: boolean;
+  primaryDecisionMaker?: {
+    fullName: string;
+    role: string;
+    seniority?: string;
+    department?: string;
+    email?: string | null;
+    phone?: string | null;
+    linkedinUrl?: string | null;
+    confidence?: number;
+  } | null;
 }
 
 interface LeadTableProps {
@@ -487,6 +498,14 @@ export function LeadTable({ leads, onRefresh }: LeadTableProps) {
                     <ScoreBadge score={lead.score} size="sm" />
                   </div>
 
+                  {lead.primaryDecisionMaker && (
+                    <div className="flex items-center gap-1.5 text-[11px] text-indigo-300 bg-indigo-950/60 border border-indigo-800/60 px-2 py-1 rounded-md">
+                      <Users className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                      <span className="font-semibold text-white">{lead.primaryDecisionMaker.fullName}</span>
+                      <span className="text-indigo-200/80 font-normal">({lead.primaryDecisionMaker.role})</span>
+                    </div>
+                  )}
+
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="text-[11px] text-slate-300 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/60">
                       {formatSector(lead.sector)}
@@ -620,6 +639,13 @@ export function LeadTable({ leads, onRefresh }: LeadTableProps) {
                                 <span className="truncate max-w-[180px]">{lead.website.replace(/^https?:\/\//, '')}</span>
                                 <ExternalLink className="h-2.5 w-2.5" />
                               </a>
+                            )}
+                            {lead.primaryDecisionMaker && (
+                              <div className="flex items-center gap-1.5 text-[11px] text-indigo-300 font-medium mt-1">
+                                <Users className="h-3 w-3 text-indigo-400 shrink-0" />
+                                <span className="text-white font-medium">{lead.primaryDecisionMaker.fullName}</span>
+                                <span className="text-slate-400 font-normal">({lead.primaryDecisionMaker.role})</span>
+                              </div>
                             )}
                           </div>
                         </div>

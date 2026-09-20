@@ -255,6 +255,43 @@ export const enrichmentSources = sqliteTable(
   })
 );
 
+export const decisionMakers = sqliteTable(
+  'decision_makers',
+  {
+    id: text('id').primaryKey(),
+    leadId: text('lead_id').notNull().references(() => leads.id),
+    runId: text('run_id').references(() => enrichmentRuns.id),
+    fullName: text('full_name').notNull(),
+    role: text('role').notNull(),
+    department: text('department', {
+      enum: ['management', 'marketing', 'medical', 'legal', 'sales', 'operations', 'tech', 'other']
+    }).notNull().default('management'),
+    seniority: text('seniority', {
+      enum: ['c_level', 'owner', 'director', 'manager', 'specialist']
+    }).notNull().default('owner'),
+    email: text('email'),
+    phone: text('phone'),
+    linkedinUrl: text('linkedin_url'),
+    avatarUrl: text('avatar_url'),
+    confidence: real('confidence').notNull().default(0.7),
+    source: text('source').notNull().default('team_page'),
+    sourceUrl: text('source_url'),
+    rawData: text('raw_data'),
+    extractedAt: text('extracted_at').notNull(),
+    lastVerifiedAt: text('last_verified_at'),
+    verificationMethod: text('verification_method', {
+      enum: ['website_published', 'pattern_inferred', 'manual_verified', 'unverified']
+    }).notNull().default('website_published'),
+    isVerified: integer('is_verified', { mode: 'boolean' }).notNull().default(false),
+    notes: text('notes'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    leadIdIdx: index('decision_makers_lead_id_idx').on(table.leadId),
+  })
+);
+
 // ---------------------------------------------------------------------------
 // Type Exports
 // ---------------------------------------------------------------------------
@@ -297,3 +334,6 @@ export type NewGrowthSignalRecord = typeof growthSignals.$inferInsert;
 
 export type EnrichmentSourceRecord = typeof enrichmentSources.$inferSelect;
 export type NewEnrichmentSourceRecord = typeof enrichmentSources.$inferInsert;
+
+export type DecisionMaker = typeof decisionMakers.$inferSelect;
+export type NewDecisionMaker = typeof decisionMakers.$inferInsert;

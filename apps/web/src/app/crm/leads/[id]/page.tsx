@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { ScoreBadge } from '@/components/crm/ScoreBadge';
 import { EnrichmentView, type EnrichmentDataDisplay } from '@/components/crm/EnrichmentView';
 import { ConsultingAuditReport } from '@/components/crm/ConsultingAuditReport';
+import { DecisionMakersView, type DecisionMakerItem } from '@/components/crm/DecisionMakersView';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -37,6 +38,7 @@ import {
   ThumbsUp,
   ThumbsDown,
   Share2,
+  Users,
 } from 'lucide-react';
 
 export default function LeadDetailPage({
@@ -58,7 +60,8 @@ export default function LeadDetailPage({
   const [outreachChannel, setOutreachChannel] = useState<'email' | 'whatsapp' | 'call'>('email');
 
   // Navigation tab
-  const [activeTab, setActiveTab] = useState<'overview' | 'audit' | 'reputation'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'audit' | 'reputation' | 'decision-makers'>('overview');
+  const [selectedDecisionMaker, setSelectedDecisionMaker] = useState<DecisionMakerItem | null>(null);
 
   // Inline Website & Contacts Editor
   const [isEditingWebsite, setIsEditingWebsite] = useState(false);
@@ -503,7 +506,7 @@ export default function LeadDetailPage({
   }
 
   // Outreach Copy
-  const outreachMsg = generateOutreachMessage({
+  const rawOutreachMsg = generateOutreachMessage({
     lead: {
       companyName: lead.companyName,
       sector: lead.sector,
@@ -512,6 +515,18 @@ export default function LeadDetailPage({
     },
     channel: outreachChannel,
   });
+
+  const outreachMsg = selectedDecisionMaker
+    ? {
+        subject: rawOutreachMsg.subject
+          ? `${rawOutreachMsg.subject} - c.a. ${selectedDecisionMaker.fullName}`
+          : undefined,
+        body: rawOutreachMsg.body.replace(
+          /(Gentile titolare|Gentile responsabile|Gentile Team|Spettabile [^,\n]+)/i,
+          `Gentile ${selectedDecisionMaker.fullName} (${selectedDecisionMaker.role})`
+        ),
+      }
+    : rawOutreachMsg;
 
   return (
     <div className="space-y-8 pb-16">
@@ -912,6 +927,19 @@ export default function LeadDetailPage({
           <Star className="h-4 w-4 text-amber-400" />
           <span>Audit Recensioni & Reputazione</span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('decision-makers')}
+          className={`px-4 py-2.5 rounded-t-lg font-semibold transition-colors flex items-center gap-2 ${
+            activeTab === 'decision-makers'
+              ? 'bg-slate-900 text-white border-t-2 border-indigo-500'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900/40'
+          }`}
+        >
+          <Users className="h-4 w-4 text-indigo-400" />
+          <span>Decisori & Organigramma</span>
+        </button>
       </div>
 
       {/* TAB 1: PANORAMICA & OUTREACH */}
@@ -976,6 +1004,40 @@ export default function LeadDetailPage({
             </div>
 
             <Card className="bg-slate-900/90 border-slate-800 p-5 space-y-4">
+              {/* Selected Decision Maker Badge */}
+              {selectedDecisionMaker ? (
+                <div className="p-3 rounded-lg bg-indigo-950/50 border border-indigo-700/60 flex items-center justify-between text-xs">
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] uppercase font-bold text-indigo-400 tracking-wider block">
+                      Target Outreach Personalizzato
+                    </span>
+                    <div className="text-white font-medium flex items-center gap-1.5">
+                      <Users className="h-3.5 w-3.5 text-indigo-400" />
+                      <span>{selectedDecisionMaker.fullName}</span>
+                      <span className="text-slate-400">({selectedDecisionMaker.role})</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDecisionMaker(null)}
+                    className="text-[11px] text-slate-400 hover:text-rose-300 underline"
+                  >
+                    Reset
+                  </button>
+                </div>
+              ) : (
+                <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between text-xs text-slate-400">
+                  <span>Nessun decisore selezionato.</span>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('decision-makers')}
+                    className="text-indigo-400 hover:text-indigo-300 underline font-medium"
+                  >
+                    Scegli Decisore &rarr;
+                  </button>
+                </div>
+              )}
+
               <div className="grid grid-cols-3 gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
                 <button
                   type="button"
@@ -1391,6 +1453,18 @@ export default function LeadDetailPage({
             </div>
           </Card>
         </div>
+      )}
+
+      {/* TAB 4: DECISORI & ORGANIGRAMMA (ENGENY.AI STYLE) */}
+      {activeTab === 'decision-makers' && (
+        <DecisionMakersView
+          leadId={id}
+          companyName={lead.companyName}
+          onSelectForOutreach={(dm) => {
+            setSelectedDecisionMaker(dm);
+            setActiveTab('overview');
+          }}
+        />
       )}
     </div>
   );

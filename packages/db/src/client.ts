@@ -301,7 +301,49 @@ export function initDatabase() {
     );
     CREATE INDEX IF NOT EXISTS enrichment_sources_lead_id_idx ON enrichment_sources(lead_id);
     CREATE INDEX IF NOT EXISTS enrichment_sources_run_id_idx ON enrichment_sources(run_id);
+
+    CREATE TABLE IF NOT EXISTS decision_makers (
+      id TEXT PRIMARY KEY,
+      lead_id TEXT NOT NULL REFERENCES leads(id),
+      run_id TEXT REFERENCES enrichment_runs(id),
+      full_name TEXT NOT NULL,
+      role TEXT NOT NULL,
+      department TEXT NOT NULL DEFAULT 'management',
+      seniority TEXT NOT NULL DEFAULT 'owner',
+      email TEXT,
+      phone TEXT,
+      linkedin_url TEXT,
+      avatar_url TEXT,
+      confidence REAL NOT NULL DEFAULT 0.7,
+      source TEXT NOT NULL DEFAULT 'team_page',
+      source_url TEXT,
+      raw_data TEXT,
+      extracted_at TEXT NOT NULL,
+      last_verified_at TEXT,
+      verification_method TEXT NOT NULL DEFAULT 'website_published',
+      is_verified INTEGER NOT NULL DEFAULT 0,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS decision_makers_lead_id_idx ON decision_makers(lead_id);
   `);
+
+  // Migrazione retrocompatibile per colonne aggiuntive se la tabella esisteva già
+  const migrations = [
+    'ALTER TABLE decision_makers ADD COLUMN source_url TEXT',
+    'ALTER TABLE decision_makers ADD COLUMN raw_data TEXT',
+    'ALTER TABLE decision_makers ADD COLUMN extracted_at TEXT',
+    'ALTER TABLE decision_makers ADD COLUMN last_verified_at TEXT',
+    'ALTER TABLE decision_makers ADD COLUMN verification_method TEXT DEFAULT "website_published"',
+    'ALTER TABLE decision_makers ADD COLUMN notes TEXT',
+    'ALTER TABLE decision_makers ADD COLUMN updated_at TEXT',
+  ];
+  for (const m of migrations) {
+    try {
+      sqlite.exec(m);
+    } catch {}
+  }
 }
 
 // Auto-run initDatabase on client import

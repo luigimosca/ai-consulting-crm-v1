@@ -183,6 +183,9 @@ export interface FullEnrichmentDossier {
   // 9. Fonti & Audit Trail
   sourcesAudit: AdapterExecutionSummary[];
 
+  // 10. Decisori & Organigramma (B2B Contact Intelligence)
+  decisionMakers?: any[];
+
   // Scoring
   commercialScore: number; // 0 to 100
   reliabilityScore: number; // 0 to 100

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { db, leads, companies, demoRequests, websiteAnalysis } from '@ai-crm/db';
+import { db, leads, companies, demoRequests, websiteAnalysis, decisionMakers } from '@ai-crm/db';
 import { desc, eq, and, sql } from 'drizzle-orm';
 import { calculateScore } from '@ai-crm/ai';
 
@@ -25,8 +25,28 @@ export async function GET(request: Request) {
       // websiteAnalysis table might be empty
     }
 
+    // Recupera decision maker principali per ciascun lead
+    let dmByLead = new Map<string, any>();
+    try {
+      const allDms = db.select().from(decisionMakers).all();
+      for (const dm of allDms) {
+        if (!dmByLead.has(dm.leadId)) {
+          dmByLead.set(dm.leadId, dm);
+        } else {
+          // Mantieni quello a seniority o confidence più alta
+          const existing = dmByLead.get(dm.leadId);
+          if ((dm.confidence || 0) > (existing.confidence || 0)) {
+            dmByLead.set(dm.leadId, dm);
+          }
+        }
+      }
+    } catch (e) {
+      // decisionMakers table might be empty
+    }
+
     const enrichedLeads = allLeads.map((l) => {
       const w = analysisByLead.get(l.id);
+      const dm = dmByLead.get(l.id);
       let isEcom = Boolean(w?.isEcommerce || l.sector === 'ecommerce');
       let platform = w?.cms || null;
 
@@ -55,6 +75,16 @@ export async function GET(request: Request) {
         cms: w?.cms || null,
         hasWhatsapp: Boolean(w?.hasWhatsapp),
         hasBooking: Boolean(w?.hasBooking),
+        primaryDecisionMaker: dm ? {
+          fullName: dm.fullName,
+          role: dm.role,
+          seniority: dm.seniority,
+          department: dm.department,
+          email: dm.email,
+          phone: dm.phone,
+          linkedinUrl: dm.linkedinUrl,
+          confidence: dm.confidence,
+        } : null,
       };
     });
 

@@ -9,7 +9,8 @@ import {
   financialIndicators, 
   reviewsSignals, 
   growthSignals, 
-  enrichmentSources 
+  enrichmentSources,
+  decisionMakers
 } from '@ai-crm/db';
 import { eq } from 'drizzle-orm';
 import { type FullEnrichmentDossier } from '@ai-crm/ai';
@@ -218,6 +219,42 @@ export function saveEnrichmentDossierToDb({ dossier, leadInput }: PersistEnrichm
         errorMessage: src.errorMessage || null,
         executedAt: src.executedAt || new Date().toISOString(),
       }).run();
+    }
+
+    // 7. Insert Decision Makers (B2B Contact Intelligence)
+    if (dossier.decisionMakers && Array.isArray(dossier.decisionMakers)) {
+      const existingDMs = db.select().from(decisionMakers).where(eq(decisionMakers.leadId, leadId)).all();
+      const existingNames = new Set(existingDMs.map((e) => e.fullName.toLowerCase().trim()));
+
+      for (const dm of dossier.decisionMakers) {
+        if (!existingNames.has(dm.fullName.toLowerCase().trim())) {
+          db.insert(decisionMakers).values({
+            id: dm.id || `dm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            leadId,
+            runId: dossier.runId,
+            fullName: dm.fullName,
+            role: dm.role,
+            department: dm.department || 'management',
+            seniority: dm.seniority || 'owner',
+            email: dm.email || null,
+            phone: dm.phone || null,
+            linkedinUrl: dm.linkedinUrl || null,
+            avatarUrl: dm.avatarUrl || null,
+            confidence: dm.confidence || 0.8,
+            source: dm.source || 'team_page',
+            sourceUrl: dm.sourceUrl || null,
+            rawData: dm.rawData || null,
+            extractedAt: dm.extractedAt || dossier.startedAt,
+            lastVerifiedAt: dm.lastVerifiedAt || dossier.completedAt,
+            verificationMethod: dm.verificationMethod || 'website_published',
+            isVerified: Boolean(dm.isVerified),
+            notes: dm.notes || null,
+            createdAt: dossier.startedAt,
+            updatedAt: dossier.completedAt,
+          }).run();
+          existingNames.add(dm.fullName.toLowerCase().trim());
+        }
+      }
     }
 
     // 8. Backward Compatibility: Insert/Update companies & enrichmentData

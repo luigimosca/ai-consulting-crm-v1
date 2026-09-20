@@ -6,3 +6,5 @@ export * from './lead-gen';
 export * from './enrichment';
 export * from './scoring';
 export * from './outreach';
+export * from './role-taxonomy';
+export * from './decision-maker-finder';

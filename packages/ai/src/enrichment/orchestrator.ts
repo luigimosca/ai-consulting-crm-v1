@@ -7,6 +7,7 @@ import { GrowthSignalAdapter } from './growth-signal-adapter';
 import { generateCommercialPainPoints } from './pain-points';
 import { calculateEnrichmentScores } from './scoring';
 import { discoverCompanyOnlinePresence } from './web-discovery';
+import { discoverDecisionMakers } from '../decision-maker-finder';
 import {
   type FullEnrichmentDossier,
   type PublicContactItem,
@@ -279,7 +280,38 @@ export class EnrichmentOrchestrator {
     // 8. Commercial Pain Points
     const painPoints = generateCommercialPainPoints(webResult?.data, lead.sector, deduplicatedContacts.length);
 
-    // 9. Scoring
+    // 9. B2B Decision Maker & Role Contact Discovery
+    const t6 = Date.now();
+    let decisionMakersList: any[] = [];
+    try {
+      const dmResult = await discoverDecisionMakers({
+        companyName: lead.companyName,
+        website: domainToAnalyze || lead.website,
+        sector: lead.sector,
+        city: lead.city,
+        address: lead.address,
+        notes: lead.notes,
+      });
+      decisionMakersList = dmResult.decisionMakers;
+      sourcesAudit.push({
+        adapterName: 'B2B Decision Maker Finder',
+        status: 'success',
+        durationMs: Date.now() - t6,
+        itemsCount: decisionMakersList.length,
+        executedAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      sourcesAudit.push({
+        adapterName: 'B2B Decision Maker Finder',
+        status: 'partial',
+        durationMs: Date.now() - t6,
+        itemsCount: 0,
+        errorMessage: err?.message,
+        executedAt: new Date().toISOString(),
+      });
+    }
+
+    // 10. Scoring
     const scores = calculateEnrichmentScores({
       sector: lead.sector,
       websiteAnalysis: webResult?.data,
@@ -309,6 +341,7 @@ export class EnrichmentOrchestrator {
       growth: growthData,
       painPoints,
       sourcesAudit,
+      decisionMakers: decisionMakersList,
       commercialScore: scores.commercialScore,
       reliabilityScore: scores.reliabilityScore,
       startedAt,
