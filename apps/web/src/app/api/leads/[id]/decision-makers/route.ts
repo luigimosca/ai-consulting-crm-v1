@@ -11,12 +11,67 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const records = db
+    let records = db
       .select()
       .from(decisionMakers)
       .where(eq(decisionMakers.leadId, id))
       .orderBy(desc(decisionMakers.confidence))
       .all();
+
+    // Se non ci sono ancora record, avvia discovery automatica immediata
+    if (records.length === 0) {
+      const lead = db.select().from(leads).where(eq(leads.id, id)).get();
+      if (lead) {
+        const now = new Date().toISOString();
+        const discovery = await discoverDecisionMakers({
+          companyName: lead.companyName,
+          website: lead.website,
+          sector: lead.sector,
+          city: lead.city,
+          address: lead.address,
+          notes: lead.notes,
+        });
+
+        for (const dm of discovery.decisionMakers) {
+          const recId = `dm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+          const newRecord = {
+            id: recId,
+            leadId: id,
+            runId: null,
+            fullName: dm.fullName,
+            role: dm.role,
+            department: dm.department,
+            seniority: dm.seniority,
+            email: dm.email || null,
+            phone: dm.phone || null,
+            linkedinUrl: dm.linkedinUrl || null,
+            avatarUrl: dm.avatarUrl || null,
+            confidence: dm.confidence,
+            source: dm.source,
+            sourceUrl: dm.sourceUrl || null,
+            rawData: dm.rawData || null,
+            extractedAt: dm.extractedAt || now,
+            lastVerifiedAt: dm.lastVerifiedAt || now,
+            verificationMethod: dm.verificationMethod || 'website_published',
+            isVerified: dm.isVerified,
+            notes: dm.notes || null,
+            createdAt: now,
+            updatedAt: now,
+          };
+
+          try {
+            db.insert(decisionMakers).values(newRecord).run();
+          } catch {}
+        }
+
+        records = db
+          .select()
+          .from(decisionMakers)
+          .where(eq(decisionMakers.leadId, id))
+          .orderBy(desc(decisionMakers.confidence))
+          .all();
+      }
+    }
 
     return NextResponse.json({ success: true, decisionMakers: records });
   } catch (error: any) {

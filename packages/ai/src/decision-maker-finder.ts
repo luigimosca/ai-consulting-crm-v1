@@ -2,11 +2,12 @@
  * B2B Decision Maker & Role Contact Intelligence Engine
  * 
  * Modulo GDPR-compliant e a costo zero per identificare i decisori aziendali:
- * 1. Crawling sicuro e mirato delle pagine Team/Staff/Chi Siamo dei siti web aziendali
- * 2. Dati societari / denominazione registrata / note
- * 3. Indici di ricerca pubblica generici (senza scraping aggressivo di LinkedIn)
- * 4. Generazione pattern email con tracciabilità e livello di confidenza
- * 5. Piena tracciabilità: extractedAt, sourceUrl, rawData, lastVerifiedAt, verificationMethod
+ * 1. Crawling multi-pagina profondo (Homepage + Subpages + Link dinamici da menu)
+ * 2. Parsing Schema.org JSON-LD (Person, LocalBusiness, founder, employee, director)
+ * 3. Pattern matching semantico su titoli, ruoli e diciture legali italiane
+ * 4. Dati camerali / denominazione registrata / note CRM
+ * 5. Generazione pattern email con tracciabilità e livello di confidenza
+ * 6. Piena tracciabilità: extractedAt, sourceUrl, rawData, lastVerifiedAt, verificationMethod
  */
 
 import { classifyRoleWithTaxonomy, type Department, type Seniority } from './role-taxonomy';
@@ -60,7 +61,7 @@ export function cleanItalianTitleAndName(raw: string): { titlePrefix: string | n
   let text = raw.replace(/<[^>]+>/g, '').trim();
   
   let titlePrefix: string | null = null;
-  const prefixMatch = text.match(/^(Dott\.ssa|Dott\.sa|Dottoressa|Dott\.|Dr\.ssa|Dr\.|Avv\.ssa|Avv\.|Ing\.|Prof\.ssa|Prof\.|Rag\.|Arch\.|Geom\.)\s+/i);
+  const prefixMatch = text.match(/^(Dott\.ssa|Dott\.sa|Dottoressa|Dott\.|Dr\.ssa|Dr\.|Avv\.ssa|Avv\.|Prof\.ssa|Prof\.|Ing\.|Rag\.|Arch\.|Geom\.|Notaio)\s+/i);
   if (prefixMatch) {
     titlePrefix = prefixMatch[1];
     text = text.replace(prefixMatch[0], '').trim();
@@ -69,7 +70,7 @@ export function cleanItalianTitleAndName(raw: string): { titlePrefix: string | n
   // Rimuovi parole di stop e ruoli appesi
   text = text
     .replace(/\s*[-–|].*$/g, '')
-    .replace(/\b(Titolare|Fondatore|CEO|Founder|Direttore|Responsabile|Studio|Clinica|Pizzeria|Ristorante)\b.*$/gi, '')
+    .replace(/\b(Titolare|Fondatore|CEO|Founder|Direttore|Responsabile|Studio|Clinica|Pizzeria|Ristorante|Bar|Hotel)\b.*$/gi, '')
     .trim();
 
   // Pulisci caratteri non alfabetici mantenendo accenti e apostrofi
@@ -104,7 +105,7 @@ export function generateProbableEmails(
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/^(dott\.ssa|dott|avv|ing|dr|prof)\s+/i, '')
+    .replace(/^(dott\.ssa|dott\.sa|dottoressa|dott|dr\.ssa|dr|avv\.ssa|avv|ing|prof\.ssa|prof|arch|geom|rag|notaio)\.?\s+/gi, '')
     .trim()
     .split(/\s+/)
     .filter((p) => p.length > 1);
@@ -129,9 +130,273 @@ export function generateProbableEmails(
 }
 
 /**
- * Scansione mirata delle subpage Team / Chi Siamo del sito web ufficiale dell'azienda
+ * Valida che una stringa sia effettivamente un nome di persona fisica e non una ragione sociale
  */
-async function scrapeTeamPages(baseUrl: string, companyName: string, sector?: string | null): Promise<DiscoveredDecisionMaker[]> {
+export function isValidPersonName(name: string): boolean {
+  if (!name || typeof name !== 'string') return false;
+  const clean = name.trim();
+  if (clean.length < 3 || clean.length > 50) return false;
+  const lower = clean.toLowerCase();
+
+  // Escludi ragioni sociali ed entità non persone fisiche
+  if (
+    /\b(srl|s\.r\.l|spa|s\.p\.a|snc|s\.n\.c|sas|s\.a\.s|ss|s\.s|coop|società|azienda|fisioterapia|recura|studio|clinica|ristorante|pizzeria|hotel|resort|boutique|store|shop|bar|lab|group|holding|agency|italia|pompei|milano|napoli|roma|firenze|torino|bologna|verona|genova)\b/i.test(lower)
+  ) {
+    return false;
+  }
+
+  // Deve contenere solo caratteri alfabetici, spazi, trattini o apostrofi
+  return /^[\p{L}\s'’.-]+$/u.test(clean);
+}
+
+/**
+ * Estrae link verso pagine team/chi-siamo/medici/privacy dal menu di navigazione della homepage
+ */
+function extractNavigationTeamLinks(html: string, baseUrl: string): string[] {
+  let origin = '';
+  try {
+    origin = new URL(baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`).origin;
+  } catch {
+    return [];
+  }
+
+  const links = new Set<string>();
+  const anchorRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+  while ((match = anchorRegex.exec(html)) !== null) {
+    const href = match[1].trim();
+    const anchorText = match[2].replace(/<[^>]+>/g, '').trim().toLowerCase();
+    
+    const isTeamRelated = 
+      /chi[\s\-_]?siam|chi[\s\-_]?son|about|team|staff|medic|dottor|avvocat|professionist|persone|fondator|storia|contatt|privacy/i.test(href) ||
+      /chi siamo|chi sono|about|team|staff|i medici|nostri medici|avvocati|professionisti|fondatori|nostra storia|contatti|privacy/i.test(anchorText);
+
+    if (isTeamRelated && !href.startsWith('mailto:') && !href.startsWith('tel:') && !href.startsWith('#')) {
+      try {
+        let fullUrl = '';
+        if (href.startsWith('http')) {
+          if (href.startsWith(origin)) fullUrl = href;
+        } else if (href.startsWith('/')) {
+          fullUrl = `${origin}${href}`;
+        } else {
+          fullUrl = `${origin}/${href}`;
+        }
+
+        if (fullUrl && fullUrl !== origin && fullUrl !== `${origin}/`) {
+          links.add(fullUrl.split('#')[0].split('?')[0]);
+        }
+      } catch {}
+    }
+  }
+
+  return Array.from(links).slice(0, 8);
+}
+
+/**
+ * Estrae candidati persone da una stringa HTML (JSON-LD + Microdata + Regex)
+ */
+function extractPersonsFromHtml(html: string, pageUrl: string, sector?: string | null): {
+  persons: DiscoveredDecisionMaker[];
+  detectedEmail: string | null;
+  detectedPhone: string | null;
+} {
+  const discovered: DiscoveredDecisionMaker[] = [];
+  const seenNames = new Set<string>();
+  const now = new Date().toISOString();
+
+  // Rileva email e telefono dalla pagina
+  let detectedEmail: string | null = null;
+  let detectedPhone: string | null = null;
+
+  const emailMatch = html.match(/mailto:([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i) ||
+    html.match(/\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b/i);
+  if (emailMatch) {
+    const em = emailMatch[1].toLowerCase();
+    if (!em.includes('wix') && !em.includes('wordpress') && !em.includes('sentry') && !em.includes('example')) {
+      detectedEmail = em;
+    }
+  }
+
+  const phoneMatch = html.match(/tel:([+0-9\s-]{8,20})/i) || html.match(/(?:\+39\s*|0\d{1,4}\s*)[\d\s-]{6,14}/);
+  if (phoneMatch) {
+    detectedPhone = (phoneMatch[1] || phoneMatch[0]).trim();
+  }
+
+  // 1. JSON-LD Extraction
+  const jsonLdMatches = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi) || [];
+  for (const script of jsonLdMatches) {
+    try {
+      const jsonStr = script.replace(/<script[^>]*>/i, '').replace(/<\/script>/i, '').trim();
+      const data = JSON.parse(jsonStr);
+      const items = Array.isArray(data) ? data : (data['@graph'] ? data['@graph'] : [data]);
+
+      for (const item of items) {
+        if (item['@type'] === 'Person' && item.name) {
+          const name = String(item.name).trim();
+          if (isValidPersonName(name) && !seenNames.has(name.toLowerCase())) {
+            seenNames.add(name.toLowerCase());
+            const role = item.jobTitle || 'Titolare / Referente';
+            const classification = classifyRoleWithTaxonomy(role, sector);
+            const emails = generateProbableEmails(name, pageUrl);
+
+            discovered.push({
+              id: `dm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+              fullName: name,
+              role: classification.normalizedTitleIt || role,
+              department: classification.department,
+              seniority: classification.seniority,
+              email: item.email || emails[0]?.email || null,
+              phone: item.telephone || null,
+              linkedinUrl: item.sameAs || null,
+              avatarUrl: item.image || null,
+              confidence: 0.98,
+              source: 'team_page',
+              sourceUrl: pageUrl,
+              rawData: JSON.stringify(item),
+              extractedAt: now,
+              lastVerifiedAt: now,
+              verificationMethod: 'website_published',
+              isVerified: true,
+              notes: `Estratto da dati strutturati Schema.org JSON-LD (${pageUrl})`,
+            });
+          }
+        }
+
+        const checkOrgField = (field: any, defaultRole: string) => {
+          if (!field) return;
+          const people = Array.isArray(field) ? field : [field];
+          for (const p of people) {
+            const pName = typeof p === 'string' ? p : p.name;
+            const pRole = (typeof p === 'object' && p.jobTitle) ? p.jobTitle : defaultRole;
+            if (pName && isValidPersonName(pName) && !seenNames.has(pName.toLowerCase())) {
+              seenNames.add(pName.toLowerCase());
+              const classification = classifyRoleWithTaxonomy(pRole, sector);
+              const emails = generateProbableEmails(pName, pageUrl);
+
+              discovered.push({
+                id: `dm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+                fullName: pName,
+                role: classification.normalizedTitleIt || pRole,
+                department: classification.department,
+                seniority: classification.seniority,
+                email: (typeof p === 'object' && p.email) ? p.email : (emails[0]?.email || null),
+                phone: (typeof p === 'object' && p.telephone) ? p.telephone : null,
+                linkedinUrl: (typeof p === 'object' && p.sameAs) ? p.sameAs : null,
+                avatarUrl: null,
+                confidence: 0.95,
+                source: 'team_page',
+                sourceUrl: pageUrl,
+                rawData: JSON.stringify(p),
+                extractedAt: now,
+                lastVerifiedAt: now,
+                verificationMethod: 'website_published',
+                isVerified: true,
+                notes: `Estratto da organigramma Schema.org (${pageUrl})`,
+              });
+            }
+          }
+        };
+
+        checkOrgField(item.founder, 'Fondatore & Titolare');
+        checkOrgField(item.employee, 'Specialista / Team');
+        checkOrgField(item.director, 'Direttore');
+        checkOrgField(item.member, 'Socio / Membro del Team');
+      }
+    } catch {}
+  }
+
+  // 2. Clean Text for Pattern Matching
+  const cleanHtml = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ');
+
+  // 3. Regular Expression Patterns
+  const patterns: { regex: RegExp; defaultRole: string; nameGroup: number; roleGroup?: number }[] = [
+    {
+      regex: /\b(Dott\.ssa|Dott\.sa|Dottoressa|Dott\.|Dr\.ssa|Dr\.|Avv\.ssa|Avv\.|Prof\.ssa|Prof\.|Ing\.|Notaio)\s+([A-ZÀ-Ú][a-zà-ú']+(?:\s+[A-ZÀ-Ú][a-zà-ú']+){1,2})/g,
+      defaultRole: 'Titolare & Specialista',
+      nameGroup: 0
+    },
+    {
+      regex: /(?:Titolare|Fondatore|Proprietario|Amministratore|Direttore|Responsabile|Founder|CEO|Chef|Maestro|Dottore|Avvocato)\s*[:\-–]\s*([A-ZÀ-Ú][a-zà-ú']+(?:\s+[A-ZÀ-Ú][a-zà-ú']+){1,2})/gi,
+      defaultRole: 'Titolare / Direzione',
+      nameGroup: 1
+    },
+    {
+      regex: /\b([A-ZÀ-Ú][a-zà-ú']+\s+[A-ZÀ-Ú][a-zà-ú']+)\s*[,|\-–]\s*(Titolare|Fondatore|Proprietario|Amministratore\s+Unico|Direttore\s+Sanitario|Direttrice\s+Sanitaria|Responsabile\s+Marketing|Managing\s+Director|CEO|Founder|Chef\s+Patron|Avvocato|Commercialista|Fisioterapista|Odontoiatra)/g,
+      defaultRole: 'Titolare',
+      nameGroup: 1,
+      roleGroup: 2
+    },
+    {
+      regex: /\bSono\s+([A-ZÀ-Ú][a-zà-ú']+(?:\s+[A-ZÀ-Ú][a-zà-ú']+){0,2})[,\s]+(fisioterapista|osteopata|avvocato|commercialista|medico|consulente|fondatore|titolare)/gi,
+      defaultRole: 'Specialista',
+      nameGroup: 1,
+      roleGroup: 2
+    },
+    {
+      regex: /(?:Ditta\s+Individuale|Studio\s+Professionale|P\.?\s*IVA[^\n,;]{5,30})\s+di\s+([A-ZÀ-Ú][a-zà-ú']+\s+[A-ZÀ-Ú][a-zà-ú']+)/gi,
+      defaultRole: 'Titolare & Legale Rappresentante',
+      nameGroup: 1
+    },
+    {
+      regex: /Titolare\s+del\s+trattamento(?:\s+dei\s+dati)?\s*[:\-–]\s*([A-ZÀ-Ú][a-zà-ú']+\s+[A-ZÀ-Ú][a-zà-ú']+)/gi,
+      defaultRole: 'Titolare del Trattamento (Privacy)',
+      nameGroup: 1
+    }
+  ];
+
+  for (const p of patterns) {
+    let match;
+    while ((match = p.regex.exec(cleanHtml)) !== null) {
+      let rawName = match[p.nameGroup] ? match[p.nameGroup].trim() : '';
+      let rawRole = (p.roleGroup && match[p.roleGroup]) ? match[p.roleGroup].trim() : p.defaultRole;
+
+      rawName = rawName.replace(/<[^>]+>/g, '').trim();
+      const { cleanName, titlePrefix } = cleanItalianTitleAndName(rawName);
+      const fullName = titlePrefix ? `${titlePrefix} ${cleanName}` : cleanName;
+
+      if (isValidPersonName(cleanName) && !seenNames.has(cleanName.toLowerCase())) {
+        seenNames.add(cleanName.toLowerCase());
+        const classification = classifyRoleWithTaxonomy(rawRole, sector);
+        const emails = generateProbableEmails(cleanName, pageUrl);
+
+        discovered.push({
+          id: `dm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          fullName,
+          role: classification.normalizedTitleIt || rawRole,
+          department: classification.department,
+          seniority: classification.seniority,
+          email: emails[0]?.email || null,
+          phone: null,
+          linkedinUrl: null,
+          avatarUrl: null,
+          confidence: titlePrefix ? 0.94 : 0.88,
+          source: 'team_page',
+          sourceUrl: pageUrl,
+          rawData: JSON.stringify({ match: match[0], pageUrl }),
+          extractedAt: now,
+          lastVerifiedAt: now,
+          verificationMethod: 'website_published',
+          isVerified: true,
+          notes: `Identificato nella pagina web aziendale (${pageUrl})`,
+        });
+      }
+    }
+  }
+
+  return { persons: discovered, detectedEmail, detectedPhone };
+}
+
+/**
+ * Scansione multi-pagina sicura del sito web aziendale
+ */
+async function scrapeTeamPages(baseUrl: string, companyName: string, sector?: string | null): Promise<{
+  persons: DiscoveredDecisionMaker[];
+  siteEmail: string | null;
+  sitePhone: string | null;
+}> {
   const discovered: DiscoveredDecisionMaker[] = [];
   const normalizedUrl = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`;
   
@@ -139,9 +404,51 @@ async function scrapeTeamPages(baseUrl: string, companyName: string, sector?: st
   try {
     origin = new URL(normalizedUrl).origin;
   } catch {
-    return [];
+    return { persons: [], siteEmail: null, sitePhone: null };
   }
 
+  const seenUrls = new Set<string>();
+  const targetUrls: string[] = [];
+  let siteEmail: string | null = null;
+  let sitePhone: string | null = null;
+
+  // Includi sempre la homepage / base URL
+  targetUrls.push(normalizedUrl);
+  if (normalizedUrl !== origin && normalizedUrl !== `${origin}/`) {
+    targetUrls.push(origin);
+  }
+  seenUrls.add(normalizedUrl);
+  seenUrls.add(origin);
+
+  // 1. Scansiona prima la homepage per estrarre sia persone sia link del menu
+  let homepageHtml = '';
+  try {
+    const res = await fetch(origin, {
+      headers: {
+        'User-Agent': USER_AGENT,
+        'Accept': 'text/html,application/xhtml+xml',
+      },
+      signal: AbortSignal.timeout(4500),
+    });
+    if (res.ok) {
+      homepageHtml = await res.text();
+      const hpResult = extractPersonsFromHtml(homepageHtml, origin, sector);
+      discovered.push(...hpResult.persons);
+      if (hpResult.detectedEmail) siteEmail = hpResult.detectedEmail;
+      if (hpResult.detectedPhone) sitePhone = hpResult.detectedPhone;
+
+      // Trova link dinamici alle pagine team/chi-siamo
+      const dynamicLinks = extractNavigationTeamLinks(homepageHtml, origin);
+      for (const dl of dynamicLinks) {
+        if (!seenUrls.has(dl)) {
+          seenUrls.add(dl);
+          targetUrls.push(dl);
+        }
+      }
+    }
+  } catch {}
+
+  // 2. Aggiungi candidate subpaths classiche
   const candidatePaths = [
     '/chi-siamo',
     '/chi-sono',
@@ -149,95 +456,47 @@ async function scrapeTeamPages(baseUrl: string, companyName: string, sector?: st
     '/about-us',
     '/team',
     '/staff',
-    '/lo-staff',
-    '/nostro-team',
     '/medici',
     '/dottori',
     '/professionisti',
     '/avvocati',
     '/contatti',
+    '/privacy-policy',
+    '/note-legali',
   ];
 
-  const now = new Date().toISOString();
-  const seenNames = new Set<string>();
+  for (const cp of candidatePaths) {
+    const full = `${origin}${cp}`;
+    if (!seenUrls.has(full)) {
+      seenUrls.add(full);
+      targetUrls.push(full);
+    }
+  }
 
-  // Esegui crawling con timeout breve (3.5s) e gestione errori per subpage
+  // 3. Esegui crawling parallelo delle subpage (massimo 8 URL)
+  const toScan = targetUrls.filter((u) => u !== origin).slice(0, 8);
   await Promise.allSettled(
-    candidatePaths.slice(0, 6).map(async (path) => {
-      const targetUrl = `${origin}${path}`;
+    toScan.map(async (targetUrl) => {
       try {
         const res = await fetch(targetUrl, {
           headers: {
             'User-Agent': USER_AGENT,
             'Accept': 'text/html,application/xhtml+xml',
           },
-          signal: AbortSignal.timeout(3500),
+          signal: AbortSignal.timeout(4000),
         });
 
         if (!res.ok) return;
         const html = await res.text();
-
-        // 1. Cerca pattern italiani con titoli (es. Dott.ssa Silvia Mirabella, Avv. Marco Rossi)
-        const titleRegex = /\b(Dott\.ssa|Dott\.sa|Dottoressa|Dott\.|Dr\.ssa|Dr\.|Avv\.ssa|Avv\.|Prof\.ssa|Prof\.|Ing\.)\s+([A-ZÀ-Ú][a-zà-ú']+(?:\s+[A-ZÀ-Ú][a-zà-ú']+){1,2})/g;
-        let match;
-        while ((match = titleRegex.exec(html)) !== null) {
-          const prefix = match[1];
-          const nameOnly = match[2].trim();
-          const full = `${prefix} ${nameOnly}`;
-
-          if (nameOnly.length > 4 && !seenNames.has(nameOnly.toLowerCase())) {
-            seenNames.add(nameOnly.toLowerCase());
-
-            // Estrai contesto intorno al nome per determinare il ruolo
-            const idx = match.index;
-            const surroundingText = html
-              .substring(Math.max(0, idx - 120), Math.min(html.length, idx + 220))
-              .replace(/<[^>]+>/g, ' ')
-              .replace(/\s+/g, ' ');
-
-            let role = 'Titolare / Specialista';
-            if (/fisioterap|metodo mézières|postur/i.test(surroundingText)) {
-              role = 'Titolare & Fisioterapista Specializzata';
-            } else if (/direttore sanitario|direttrice sanitaria/i.test(surroundingText)) {
-              role = 'Direttore Sanitario';
-            } else if (/socio|founder|fondat/i.test(surroundingText)) {
-              role = 'Fondatore & Titolare';
-            } else if (/avvocato|partner/i.test(surroundingText)) {
-              role = 'Avvocato Partner';
-            } else if (/odontoiatra|dentista/i.test(surroundingText)) {
-              role = 'Odontoiatra Titolare';
-            }
-
-            const classification = classifyRoleWithTaxonomy(role, sector);
-            const probableEmails = generateProbableEmails(nameOnly, baseUrl);
-
-            discovered.push({
-              id: `dm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-              fullName: full,
-              role: classification.normalizedTitleIt || role,
-              department: classification.department,
-              seniority: classification.seniority,
-              email: probableEmails[0]?.email || null,
-              phone: null,
-              linkedinUrl: null,
-              avatarUrl: null,
-              confidence: 0.92,
-              source: 'team_page',
-              sourceUrl: targetUrl,
-              rawData: JSON.stringify({ match: full, surroundingSnippet: surroundingText.trim() }),
-              extractedAt: now,
-              lastVerifiedAt: now,
-              verificationMethod: 'website_published',
-              isVerified: true,
-              notes: `Estratto dalla pagina istituzionale del sito web (${targetUrl})`,
-            });
-          }
-        }
+        const result = extractPersonsFromHtml(html, targetUrl, sector);
+        discovered.push(...result.persons);
+        if (!siteEmail && result.detectedEmail) siteEmail = result.detectedEmail;
+        if (!sitePhone && result.detectedPhone) sitePhone = result.detectedPhone;
       } catch {}
     })
   );
 
-  return discovered;
+  return { persons: discovered, siteEmail, sitePhone };
 }
 
 /**
@@ -247,129 +506,136 @@ function extractFromCorporateRecords(params: DecisionMakerSearchParams): Discove
   const { companyName, notes, website, sector } = params;
   const discovered: DiscoveredDecisionMaker[] = [];
   const now = new Date().toISOString();
+  const seenNames = new Set<string>();
 
   const combined = `${companyName} ${notes || ''}`;
 
-  // Cerca pattern "Dott.ssa Silvia Mirabella", "Avv. ...", ecc.
-  const namePattern = /\b(Dott\.ssa|Dott\.sa|Dottoressa|Dott\.|Dr\.ssa|Dr\.|Avv\.ssa|Avv\.|Prof\.ssa|Prof\.|Ing\.)\s+([A-ZÀ-Ú][a-zà-ú']+(?:\s+[A-ZÀ-Ú][a-zà-ú']+){1,2})/g;
+  // 1. Pattern: "Attività di Nome Cognome" (Chatbot & Inbound)
+  const inboundMatch = combined.match(/Attività di\s+([A-ZÀ-Ú][a-zà-ú']+\s+[A-ZÀ-Ú][a-zà-ú']+)/i);
+  if (inboundMatch) {
+    const name = inboundMatch[1].trim();
+    if (!seenNames.has(name.toLowerCase())) {
+      seenNames.add(name.toLowerCase());
+      const classification = classifyRoleWithTaxonomy('Titolare & Founder', sector);
+      const probableEmails = generateProbableEmails(name, website || null);
+
+      discovered.push({
+        id: `dm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        fullName: name,
+        role: classification.normalizedTitleIt || 'Titolare & Founder',
+        department: classification.department,
+        seniority: classification.seniority,
+        email: probableEmails[0]?.email || null,
+        phone: null,
+        linkedinUrl: null,
+        avatarUrl: null,
+        confidence: 0.96,
+        source: 'corporate_record',
+        sourceUrl: website || null,
+        rawData: JSON.stringify({ source: 'inbound_request', match: inboundMatch[0] }),
+        extractedAt: now,
+        lastVerifiedAt: now,
+        verificationMethod: 'website_published',
+        isVerified: true,
+        notes: `Titolare registrato dal modulo di contatto/richiesta demo`,
+      });
+    }
+  }
+
+  // 2. Pattern: "Studio Legale / Commercialisti / Notarile [Associati] [Cognome] & Partners"
+  const studioMatch = companyName.match(/Studio\s+(Legale|Commercialisti|Notarile|Dentistico|Fiscale|Tributario)?\s*(?:Associato)?\s*(?:Dott\.ssa|Avv\.ssa|Dott\.|Avv\.|Notaio)?\s*([A-ZÀ-Ú][a-zà-ú']+)/i);
+  if (studioMatch) {
+    const studioType = (studioMatch[1] || '').toLowerCase();
+    const surname = studioMatch[2].trim();
+
+    let prefix = 'Dott.';
+    let role = 'Partner & Titolare di Studio';
+    if (studioType.includes('legal') || studioType.includes('avvocat')) {
+      prefix = 'Avv.';
+      role = 'Avvocato Partner / Titolare di Studio';
+    } else if (studioType.includes('notar')) {
+      prefix = 'Notaio';
+      role = 'Notaio Titolare';
+    } else if (studioType.includes('commercialist') || studioType.includes('fiscal') || studioType.includes('tributar')) {
+      prefix = 'Dott.';
+      role = 'Dottore Commercialista & Partner';
+    }
+
+    const full = `${prefix} ${surname}`;
+    if (!seenNames.has(full.toLowerCase())) {
+      seenNames.add(full.toLowerCase());
+      const classification = classifyRoleWithTaxonomy(role, sector);
+      const probableEmails = generateProbableEmails(surname, website || null);
+
+      discovered.push({
+        id: `dm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        fullName: full,
+        role: classification.normalizedTitleIt || role,
+        department: classification.department,
+        seniority: classification.seniority,
+        email: probableEmails[0]?.email || null,
+        phone: null,
+        linkedinUrl: null,
+        avatarUrl: null,
+        confidence: 0.93,
+        source: 'corporate_record',
+        sourceUrl: website || null,
+        rawData: JSON.stringify({ entityName: companyName, titleFound: full }),
+        extractedAt: now,
+        lastVerifiedAt: now,
+        verificationMethod: 'pattern_inferred',
+        isVerified: true,
+        notes: `Managing Partner identificato dalla denominazione dello Studio Professionale`,
+      });
+    }
+  }
+
+  // 3. Cerca pattern "Dott.ssa Silvia Mirabella", "Avv. ...", ecc.
+  const namePattern = /\b(Dott\.ssa|Dott\.sa|Dottoressa|Dott\.|Dr\.ssa|Dr\.|Avv\.ssa|Avv\.|Prof\.ssa|Prof\.|Ing\.|Notaio)\s+([A-ZÀ-Ú][a-zà-ú']+(?:\s+[A-ZÀ-Ú][a-zà-ú']+){1,2})/g;
   let match;
 
   while ((match = namePattern.exec(combined)) !== null) {
     const prefix = match[1];
-    const nameOnly = match[2].trim();
-    const full = `${prefix} ${nameOnly}`;
+    const { cleanName } = cleanItalianTitleAndName(match[2].trim());
+    const full = `${prefix} ${cleanName}`;
 
-    let role = 'Titolare & Responsabile Legale';
-    if (combined.toLowerCase().includes('fisioterap')) {
-      role = 'Titolare & Fisioterapista (Metodo Mézières)';
-    } else if (combined.toLowerCase().includes('legale') || combined.toLowerCase().includes('avvocat')) {
-      role = 'Avvocato Titolare';
-    } else if (combined.toLowerCase().includes('commercialist')) {
-      role = 'Dottore Commercialista Titolare';
+    if (cleanName.length > 3 && !seenNames.has(cleanName.toLowerCase())) {
+      seenNames.add(cleanName.toLowerCase());
+
+      let role = 'Titolare & Responsabile Legale';
+      if (combined.toLowerCase().includes('fisioterap')) {
+        role = 'Titolare & Fisioterapista Specializzata';
+      } else if (combined.toLowerCase().includes('legale') || combined.toLowerCase().includes('avvocat')) {
+        role = 'Avvocato Titolare';
+      } else if (combined.toLowerCase().includes('commercialist')) {
+        role = 'Dottore Commercialista Titolare';
+      }
+
+      const classification = classifyRoleWithTaxonomy(role, sector);
+      const probableEmails = generateProbableEmails(cleanName, website || null);
+
+      discovered.push({
+        id: `dm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        fullName: full,
+        role: classification.normalizedTitleIt || role,
+        department: classification.department,
+        seniority: classification.seniority,
+        email: probableEmails[0]?.email || null,
+        phone: null,
+        linkedinUrl: null,
+        avatarUrl: null,
+        confidence: 0.95,
+        source: 'corporate_record',
+        sourceUrl: website || null,
+        rawData: JSON.stringify({ entityName: companyName, titleFound: full }),
+        extractedAt: now,
+        lastVerifiedAt: now,
+        verificationMethod: 'website_published',
+        isVerified: true,
+        notes: `Titolare identificato nella denominazione ufficiale o nelle note dell'attività`,
+      });
     }
-
-    const classification = classifyRoleWithTaxonomy(role, sector);
-    const probableEmails = generateProbableEmails(nameOnly, website || null);
-
-    discovered.push({
-      id: `dm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      fullName: full,
-      role: classification.normalizedTitleIt || role,
-      department: classification.department,
-      seniority: classification.seniority,
-      email: probableEmails[0]?.email || null,
-      phone: null,
-      linkedinUrl: null,
-      avatarUrl: null,
-      confidence: 0.95,
-      source: 'corporate_record',
-      sourceUrl: website || null,
-      rawData: JSON.stringify({ entityName: companyName, titleFound: full }),
-      extractedAt: now,
-      lastVerifiedAt: now,
-      verificationMethod: 'website_published',
-      isVerified: true,
-      notes: `Titolare registrato identificato nella denominazione ufficiale dell'attività`,
-    });
   }
-
-  return discovered;
-}
-
-/**
- * Ricerca su indici pubblici generali (GDPR-safe, senza scraping intensivo)
- */
-async function searchPublicWebDecisionMakers(params: DecisionMakerSearchParams): Promise<DiscoveredDecisionMaker[]> {
-  const { companyName, city, website, sector } = params;
-  const discovered: DiscoveredDecisionMaker[] = [];
-  const now = new Date().toISOString();
-  const seenNames = new Set<string>();
-
-  const queries: string[] = [
-    `"${companyName}" "${city || 'Italia'}" titolare OR fondatore OR "dott.ssa" OR "dott"`,
-    `"${companyName}" chi siamo team`,
-  ];
-
-  await Promise.allSettled(
-    queries.map(async (q) => {
-      try {
-        const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`;
-        const res = await fetch(searchUrl, {
-          headers: {
-            'User-Agent': USER_AGENT,
-            'Accept': 'text/html,application/xhtml+xml',
-            'Accept-Language': 'it-IT,it;q=0.9,en;q=0.8',
-          },
-          signal: AbortSignal.timeout(4000),
-        });
-
-        if (!res.ok) return;
-        const html = await res.text();
-
-        const resultRegex = /<h2 class="result__title">.*?<a[^>]*>(.*?)<\/a>.*?<a class="result__snippet"[^>]*>(.*?)<\/a>/gs;
-        let match;
-
-        while ((match = resultRegex.exec(html)) !== null) {
-          const rawTitle = match[1] || '';
-          const snippet = match[2] || '';
-          const fullSnippet = `${rawTitle} ${snippet}`.replace(/<[^>]+>/g, ' ');
-
-          // Cerca nominativi e ruoli associati
-          const personMatch = fullSnippet.match(/\b(Dott\.ssa|Dott\.|Avv\.|Ing\.)\s+([A-ZÀ-Ú][a-zà-ú']+\s+[A-ZÀ-Ú][a-zà-ú']+)/);
-          if (personMatch) {
-            const candidateName = `${personMatch[1]} ${personMatch[2].trim()}`;
-            if (!seenNames.has(candidateName.toLowerCase()) && candidateName.length > 5) {
-              seenNames.add(candidateName.toLowerCase());
-
-              const classification = classifyRoleWithTaxonomy('Titolare / Professionista', sector);
-              const probableEmails = generateProbableEmails(personMatch[2].trim(), website || null);
-
-              discovered.push({
-                id: `dm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-                fullName: candidateName,
-                role: classification.normalizedTitleIt,
-                department: classification.department,
-                seniority: classification.seniority,
-                email: probableEmails[0]?.email || null,
-                phone: null,
-                linkedinUrl: null,
-                avatarUrl: null,
-                confidence: 0.88,
-                source: 'web_discovery',
-                sourceUrl: null,
-                rawData: JSON.stringify({ query: q, snippet: fullSnippet.substring(0, 200) }),
-                extractedAt: now,
-                lastVerifiedAt: now,
-                verificationMethod: 'website_published',
-                isVerified: true,
-                notes: `Nominativo professionale rilevato da fonti web aperte indicizzate`,
-              });
-            }
-          }
-        }
-      } catch {}
-    })
-  );
 
   return discovered;
 }
@@ -393,19 +659,25 @@ export async function discoverDecisionMakers(params: DecisionMakerSearchParams):
   // 1. Dati societari e note CRM
   const fromCorporate = extractFromCorporateRecords(params);
   for (const dm of fromCorporate) {
-    const key = dm.fullName.toLowerCase();
+    const key = dm.fullName.toLowerCase().replace(/^(dott\.ssa|dott|avv|ing|dr|prof|notaio)\.?\s+/gi, '').trim();
     if (!seenNameKeys.has(key)) {
       seenNameKeys.add(key);
       allDiscovered.push(dm);
     }
   }
 
-  // 2. Team page crawler
+  // 2. Multi-page Website Crawler & JSON-LD Extractor
+  let siteDetectedEmail: string | null = null;
+  let siteDetectedPhone: string | null = null;
+
   if (params.website) {
     try {
       const fromTeam = await scrapeTeamPages(params.website, params.companyName, params.sector);
-      for (const dm of fromTeam) {
-        const key = dm.fullName.toLowerCase();
+      siteDetectedEmail = fromTeam.siteEmail;
+      siteDetectedPhone = fromTeam.sitePhone;
+
+      for (const dm of fromTeam.persons) {
+        const key = dm.fullName.toLowerCase().replace(/^(dott\.ssa|dott|avv|ing|dr|prof|notaio)\.?\s+/gi, '').trim();
         if (!seenNameKeys.has(key)) {
           seenNameKeys.add(key);
           allDiscovered.push(dm);
@@ -414,37 +686,28 @@ export async function discoverDecisionMakers(params: DecisionMakerSearchParams):
     } catch {}
   }
 
-  // 3. Web discovery safe
-  try {
-    const fromWeb = await searchPublicWebDecisionMakers(params);
-    for (const dm of fromWeb) {
-      const key = dm.fullName.toLowerCase();
-      if (!seenNameKeys.has(key)) {
-        seenNameKeys.add(key);
-        allDiscovered.push(dm);
-      }
-    }
-  } catch {}
-
-  // Se nessun nominativo specifico è presente, crea il referente direzionale di default
+  // Se nessun nominativo specifico è stato trovato, crea il referente direzionale di default
   if (allDiscovered.length === 0) {
     let defaultRole = 'Titolare / Direzione Generale';
     if (params.sector === 'ecommerce') defaultRole = 'Head of E-Commerce / Titolare';
     else if (params.sector === 'local_services') defaultRole = 'Titolare / Responsabile Attività';
     else if (params.sector === 'horeca_ristoranti') defaultRole = 'Titolare & Gestore';
     else if (params.sector === 'studi_legali' || params.sector === 'commercialisti') defaultRole = 'Partner / Titolare di Studio';
+    else if (params.sector === 'horeca_hotel') defaultRole = 'Direttore Generale / Hotel Manager';
 
     const classification = classifyRoleWithTaxonomy(defaultRole, params.sector);
     const probableEmails = generateProbableEmails('Direzione', params.website || null);
 
+    const fallbackEmail = siteDetectedEmail || probableEmails[0]?.email || (params.website ? `info@${params.website.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]}` : null);
+
     allDiscovered.push({
       id: `dm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      fullName: `Direzione / Titolare (${params.companyName})`,
+      fullName: `Direzione Generale (${params.companyName})`,
       role: classification.normalizedTitleIt || defaultRole,
       department: classification.department,
       seniority: 'owner',
-      email: probableEmails[0]?.email || (params.website ? `info@${params.website.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]}` : null),
-      phone: null,
+      email: fallbackEmail,
+      phone: siteDetectedPhone || null,
       linkedinUrl: null,
       avatarUrl: null,
       confidence: 0.70,
@@ -458,6 +721,9 @@ export async function discoverDecisionMakers(params: DecisionMakerSearchParams):
       notes: `Referente direzionale dedotto per ${params.companyName}`,
     });
   }
+
+  // Ordina per confidenza decrescente (i verificati con titolo e fonte certa in cima)
+  allDiscovered.sort((a, b) => b.confidence - a.confidence);
 
   const cLevelCount = allDiscovered.filter((dm) => dm.seniority === 'c_level' || dm.seniority === 'owner').length;
   const verifiedCount = allDiscovered.filter((dm) => dm.isVerified).length;
