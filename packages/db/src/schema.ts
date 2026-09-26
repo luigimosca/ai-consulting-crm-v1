@@ -641,6 +641,78 @@ export const activityLog = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// Modelli di Processo (Process Templates, Versioni Immutabili e Modelli Applicati)
+// ---------------------------------------------------------------------------
+
+export const processTemplates = sqliteTable(
+  'process_templates',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    code: text('code').notNull().unique(), // e.g. WEBSITE_CREATION, SEO_LAUNCH
+    category: text('category', {
+      enum: ['website', 'seo', 'google_ads', 'meta_ads', 'marketing']
+    }).notNull().default('website'),
+    description: text('description'),
+    status: text('status', {
+      enum: ['draft', 'active', 'archived']
+    }).notNull().default('draft'),
+    currentVersionNumber: integer('current_version_number').notNull().default(1),
+    createdBy: text('created_by').notNull().references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    codeIdx: index('process_templates_code_idx').on(table.code),
+    categoryIdx: index('process_templates_category_idx').on(table.category),
+    statusIdx: index('process_templates_status_idx').on(table.status),
+  })
+);
+
+export const processTemplateVersions = sqliteTable(
+  'process_template_versions',
+  {
+    id: text('id').primaryKey(),
+    templateId: text('template_id').notNull().references(() => processTemplates.id),
+    versionNumber: integer('version_number').notNull(),
+    status: text('status', {
+      enum: ['draft', 'published', 'archived']
+    }).notNull().default('draft'),
+    changelog: text('changelog'),
+    definitionJson: text('definition_json').notNull(), // Snapshot immutabile di fasi, milestone, task, durate, ruoli, checklist, dipendenze
+    createdBy: text('created_by').notNull().references(() => users.id),
+    publishedAt: text('published_at'),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => ({
+    templateIdIdx: index('process_template_versions_template_id_idx').on(table.templateId),
+    versionNumberIdx: index('process_template_versions_number_idx').on(table.templateId, table.versionNumber),
+    statusIdx: index('process_template_versions_status_idx').on(table.status),
+  })
+);
+
+export const projectAppliedTemplates = sqliteTable(
+  'project_applied_templates',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id').notNull().references(() => projects.id),
+    templateId: text('template_id').notNull().references(() => processTemplates.id),
+    templateVersionId: text('template_version_id').notNull().references(() => processTemplateVersions.id),
+    templateVersionNumber: integer('template_version_number').notNull(),
+    appliedBy: text('applied_by').notNull().references(() => users.id),
+    appliedAt: text('applied_at').notNull(),
+    idempotencyKey: text('idempotency_key'),
+    taskMappingJson: text('task_mapping_json').notNull(), // mappa templateTaskId -> realTaskId, templateMilestoneId -> realMilestoneId
+    notes: text('notes'),
+  },
+  (table) => ({
+    projectIdIdx: index('proj_applied_templates_project_id_idx').on(table.projectId),
+    templateIdIdx: index('proj_applied_templates_template_id_idx').on(table.templateId),
+    idempotencyKeyIdx: index('proj_applied_templates_idempotency_idx').on(table.idempotencyKey),
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Type Exports
 // ---------------------------------------------------------------------------
 
@@ -721,3 +793,13 @@ export type NewDocument = typeof documents.$inferInsert;
 
 export type ActivityLogRecord = typeof activityLog.$inferSelect;
 export type NewActivityLogRecord = typeof activityLog.$inferInsert;
+
+export type ProcessTemplate = typeof processTemplates.$inferSelect;
+export type NewProcessTemplate = typeof processTemplates.$inferInsert;
+
+export type ProcessTemplateVersion = typeof processTemplateVersions.$inferSelect;
+export type NewProcessTemplateVersion = typeof processTemplateVersions.$inferInsert;
+
+export type ProjectAppliedTemplate = typeof projectAppliedTemplates.$inferSelect;
+export type NewProjectAppliedTemplate = typeof projectAppliedTemplates.$inferInsert;
+

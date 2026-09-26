@@ -577,6 +577,54 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS activity_log_entity_idx ON activity_log(entity_type, entity_id);
     CREATE INDEX IF NOT EXISTS activity_log_performed_by_idx ON activity_log(performed_by);
     CREATE INDEX IF NOT EXISTS activity_log_created_at_idx ON activity_log(created_at);
+
+    -- Modelli di Processo (Process Templates)
+    CREATE TABLE IF NOT EXISTS process_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      code TEXT NOT NULL UNIQUE,
+      category TEXT NOT NULL DEFAULT 'website',
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'draft',
+      current_version_number INTEGER NOT NULL DEFAULT 1,
+      created_by TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS process_templates_code_idx ON process_templates(code);
+    CREATE INDEX IF NOT EXISTS process_templates_category_idx ON process_templates(category);
+    CREATE INDEX IF NOT EXISTS process_templates_status_idx ON process_templates(status);
+
+    CREATE TABLE IF NOT EXISTS process_template_versions (
+      id TEXT PRIMARY KEY,
+      template_id TEXT NOT NULL REFERENCES process_templates(id),
+      version_number INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      changelog TEXT,
+      definition_json TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES users(id),
+      published_at TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS process_template_versions_template_id_idx ON process_template_versions(template_id);
+    CREATE INDEX IF NOT EXISTS process_template_versions_number_idx ON process_template_versions(template_id, version_number);
+    CREATE INDEX IF NOT EXISTS process_template_versions_status_idx ON process_template_versions(status);
+
+    CREATE TABLE IF NOT EXISTS project_applied_templates (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      template_id TEXT NOT NULL REFERENCES process_templates(id),
+      template_version_id TEXT NOT NULL REFERENCES process_template_versions(id),
+      template_version_number INTEGER NOT NULL,
+      applied_by TEXT NOT NULL REFERENCES users(id),
+      applied_at TEXT NOT NULL,
+      idempotency_key TEXT,
+      task_mapping_json TEXT NOT NULL,
+      notes TEXT
+    );
+    CREATE INDEX IF NOT EXISTS proj_applied_templates_project_id_idx ON project_applied_templates(project_id);
+    CREATE INDEX IF NOT EXISTS proj_applied_templates_template_id_idx ON project_applied_templates(template_id);
+    CREATE INDEX IF NOT EXISTS proj_applied_templates_idempotency_idx ON project_applied_templates(idempotency_key);
   `);
 
   // Migrazione retrocompatibile per colonne aggiuntive se le tabelle esistevano già

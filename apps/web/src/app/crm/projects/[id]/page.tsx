@@ -34,7 +34,13 @@ import {
   ArrowRight,
   ShieldCheck,
   Sparkles,
+  Workflow,
+  Layers,
+  CheckCircle,
+  HelpCircle,
+  RefreshCw,
 } from 'lucide-react';
+import { SUGGESTED_ROLES_TAXONOMY } from '@ai-crm/ai';
 
 export default function ProjectDetailPage({
   params,
@@ -48,6 +54,22 @@ export default function ProjectDetailPage({
   const [usersList, setUsersList] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'gantt' | 'documents'>('overview');
+
+  // Process Templates State
+  const [appliedTemplates, setAppliedTemplates] = useState<any[]>([]);
+  const [isApplyTemplateModalOpen, setIsApplyTemplateModalOpen] = useState(false);
+  const [templateCatalog, setTemplateCatalog] = useState<any[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [templateStartDate, setTemplateStartDate] = useState('');
+  const [roleMappings, setRoleMappings] = useState<Record<string, string>>({});
+  const [excludedTaskCodes, setExcludedTaskCodes] = useState<string[]>([]);
+  const [defaultFallbackUserId, setDefaultFallbackUserId] = useState('');
+  const [templatePreviewData, setTemplatePreviewData] = useState<any>(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [isApplyingTemplate, setIsApplyingTemplate] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const [applySuccessMessage, setApplySuccessMessage] = useState<string | null>(null);
+  const [applyModalStep, setApplyModalStep] = useState<'config' | 'preview'>('config');
 
   // Modals state
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
@@ -102,10 +124,11 @@ export default function ProjectDetailPage({
   const fetchProject = async () => {
     setIsLoading(true);
     try {
-      const [projRes, usersRes, ordersRes] = await Promise.all([
+      const [projRes, usersRes, ordersRes, appliedTemplatesRes] = await Promise.all([
         fetch(`/api/projects/${id}?t=${Date.now()}`),
         fetch('/api/users'),
         fetch('/api/orders'),
+        fetch(`/api/projects/${id}/applied-templates?t=${Date.now()}`),
       ]);
 
       if (!projRes.ok) {
@@ -124,6 +147,11 @@ export default function ProjectDetailPage({
       if (ordersRes.ok) {
         const oData = await ordersRes.json();
         setOrdersList(oData.orders || []);
+      }
+
+      if (appliedTemplatesRes.ok) {
+        const atData = await appliedTemplatesRes.json();
+        setAppliedTemplates(atData.appliedTemplates || []);
       }
 
       if (data.project) {
@@ -148,6 +176,135 @@ export default function ProjectDetailPage({
   useEffect(() => {
     fetchProject();
   }, [id]);
+
+  const initRoleMappings = (tmpl: any, fallbackUserId: string, availableUsers: any[]) => {
+    const mappings: Record<string, string> = {};
+    if (tmpl && tmpl.activeVersion?.definition?.tasks) {
+      const distinctRoles = Array.from(
+        new Set(tmpl.activeVersion.definition.tasks.map((t: any) => t.suggestedRole || 'generic'))
+      ) as string[];
+      for (const r of distinctRoles) {
+        // Find matching user by role keyword if possible, else fallback to manager/admin
+        const matchingUser = availableUsers.find((u) => u.role?.toLowerCase().includes(r.toLowerCase())) || null;
+        mappings[r] = matchingUser ? matchingUser.id : fallbackUserId;
+      }
+    }
+    setRoleMappings(mappings);
+  };
+
+  const handleOpenApplyTemplateModal = async () => {
+    setApplyError(null);
+    setApplySuccessMessage(null);
+    setTemplatePreviewData(null);
+    setApplyModalStep('config');
+    setExcludedTaskCodes([]);
+
+    const initialStartDate = projectData?.project?.startDate || new Date().toISOString().slice(0, 10);
+    setTemplateStartDate(initialStartDate);
+
+    const defaultUser = projectData?.project?.managerId || usersList[0]?.id || '';
+    setDefaultFallbackUserId(defaultUser);
+
+    try {
+      const res = await fetch('/api/process-templates?status=active');
+      if (res.ok) {
+        const data = await res.json();
+        const activeTmpls = data.templates || [];
+        setTemplateCatalog(activeTmpls);
+        if (activeTmpls.length > 0) {
+          const firstTmpl = activeTmpls[0];
+          setSelectedTemplateId(firstTmpl.id);
+          initRoleMappings(firstTmpl, defaultUser, usersList);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load process templates catalog:', err);
+    }
+    setIsApplyTemplateModalOpen(true);
+  };
+
+  const handleSelectTemplate = (templateId: string) => {
+    setSelectedTemplateId(templateId);
+    setExcludedTaskCodes([]);
+    setTemplatePreviewData(null);
+    const tmpl = templateCatalog.find((t) => t.id === templateId);
+    if (tmpl) {
+      initRoleMappings(tmpl, defaultFallbackUserId, usersList);
+    }
+  };
+
+  const handleGeneratePreview = async () => {
+    if (!selectedTemplateId) {
+      setApplyError('Seleziona un modello di processo');
+      return;
+    }
+    setApplyError(null);
+    setIsPreviewLoading(true);
+    try {
+      const res = await fetch('/api/process-templates/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          templateId: selectedTemplateId,
+          projectId: id,
+          startDate: templateStartDate,
+          roleMappings,
+          excludedTaskCodes,
+          defaultAssigneeUserId: defaultFallbackUserId,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setTemplatePreviewData(data);
+        setApplyModalStep('preview');
+      } else {
+        const err = await res.json();
+        setApplyError(err.error || 'Errore durante la generazione dell\'anteprima');
+      }
+    } catch (err: any) {
+      setApplyError(err?.message || 'Errore di connessione');
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  };
+
+  const handleExecuteApplyTemplate = async () => {
+    if (!selectedTemplateId) return;
+    setApplyError(null);
+    setIsApplyingTemplate(true);
+    try {
+      const res = await fetch('/api/process-templates/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          templateId: selectedTemplateId,
+          projectId: id,
+          startDate: templateStartDate,
+          roleMappings,
+          excludedTaskCodes,
+          defaultAssigneeUserId: defaultFallbackUserId,
+          idempotencyKey: `apply_${id}_${selectedTemplateId}_${Date.now()}`,
+        }),
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        setIsApplyTemplateModalOpen(false);
+        setApplySuccessMessage(
+          `Modello applicato con successo: generate ${result.tasksCreated} attività operative e ${result.milestonesCreated} milestone.`
+        );
+        await fetchProject();
+      } else {
+        const err = await res.json();
+        setApplyError(err.error || 'Errore durante l\'applicazione del modello');
+      }
+    } catch (err: any) {
+      setApplyError(err?.message || 'Errore di connessione');
+    } finally {
+      setIsApplyingTemplate(false);
+    }
+  };
 
   const handleLinkToOrder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -574,6 +731,15 @@ export default function ProjectDetailPage({
 
           <Button
             size="sm"
+            onClick={handleOpenApplyTemplateModal}
+            className="text-xs gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-md shadow-blue-500/20"
+          >
+            <Workflow className="h-3.5 w-3.5" />
+            <span>Applica Modello</span>
+          </Button>
+
+          <Button
+            size="sm"
             variant="outline"
             onClick={() => setIsEditProjectOpen(true)}
             className="text-xs gap-1.5"
@@ -595,6 +761,22 @@ export default function ProjectDetailPage({
           </Button>
         </div>
       </div>
+
+      {applySuccessMessage && (
+        <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-300 flex items-center justify-between shadow-md animate-in fade-in duration-300">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+            <span>{applySuccessMessage}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setApplySuccessMessage(null)}
+            className="text-emerald-400 hover:text-emerald-200 text-xs font-bold px-2 py-0.5 rounded hover:bg-emerald-500/20"
+          >
+            &times;
+          </button>
+        </div>
+      )}
 
       {/* Main Project Header Card */}
       <Card className="bg-slate-900/90 border-slate-800 p-6 space-y-6 shadow-xl">
@@ -855,8 +1037,64 @@ export default function ProjectDetailPage({
             </Card>
           </div>
 
-          {/* Right Col: Parent Order & Quick Stats */}
+          {/* Right Col: Parent Order & Applied Templates */}
           <div className="space-y-6">
+            {/* Applied Process Templates Card */}
+            <Card className="bg-slate-950 border-slate-800 p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-xs font-bold uppercase tracking-wider text-blue-400 flex items-center gap-2">
+                  <Workflow className="h-4 w-4" />
+                  <span>Modelli Applicati ({appliedTemplates.length})</span>
+                </CardTitle>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleOpenApplyTemplateModal}
+                  className="text-[11px] h-7 px-2.5 border-blue-500/30 text-blue-300 hover:bg-blue-950/40"
+                >
+                  <Plus className="h-3 w-3 mr-1" />
+                  Applica
+                </Button>
+              </div>
+
+              <div className="divide-y divide-slate-850">
+                {appliedTemplates.length === 0 ? (
+                  <div className="py-4 text-center space-y-2">
+                    <p className="text-xs text-slate-500">
+                      Nessun modello di processo applicato a questo progetto.
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleOpenApplyTemplateModal}
+                      className="text-xs gap-1.5 border-dashed border-slate-700 hover:border-blue-500 text-slate-300"
+                    >
+                      <Workflow className="h-3.5 w-3.5 text-blue-400" />
+                      <span>Scegli dal catalogo modelli</span>
+                    </Button>
+                  </div>
+                ) : (
+                  appliedTemplates.map((at: any) => (
+                    <div key={at.id} className="py-2.5 space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-slate-200">{at.templateName}</span>
+                        <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-400 border-blue-500/30 font-mono">
+                          v{at.versionNumber}
+                        </Badge>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
+                        <span className="font-mono text-slate-300">{at.tasksCreatedCount} task generati</span>
+                        <span>•</span>
+                        <span>{at.milestonesCreatedCount} milestone</span>
+                        <span>•</span>
+                        <span>{at.appliedAt?.slice(0, 10)}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </Card>
+
             {order && (
               <Card className="bg-slate-950 border-slate-800 p-5 space-y-3">
                 <CardTitle className="text-xs font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-2">
@@ -1662,6 +1900,401 @@ export default function ProjectDetailPage({
             </Button>
           </div>
         </form>
+      </Dialog>
+
+      {/* MODAL: APPLICA MODELLO DI PROCESSO */}
+      <Dialog
+        isOpen={isApplyTemplateModalOpen}
+        onClose={() => setIsApplyTemplateModalOpen(false)}
+        title="Applica Modello di Processo Operativo"
+        description="Genera automaticamente compiti con durate lavorative, ruoli assegnati, checklist, milestone e dipendenze sequenziali (DAG)."
+        size="xl"
+      >
+        <div className="space-y-4 text-xs">
+          {applyError && (
+            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-300">
+              {applyError}
+            </div>
+          )}
+
+          {/* Stepper Header */}
+          <div className="flex items-center gap-2 p-2 bg-slate-900/80 rounded-lg border border-slate-800 text-xs">
+            <button
+              type="button"
+              onClick={() => setApplyModalStep('config')}
+              className={`flex-1 py-1.5 px-3 rounded-md font-semibold text-center transition-colors flex items-center justify-center gap-2 ${
+                applyModalStep === 'config'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <span className="h-4 w-4 rounded-full bg-black/30 flex items-center justify-center text-[10px]">1</span>
+              <span>1. Configurazione & Ruoli</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (selectedTemplateId) handleGeneratePreview();
+              }}
+              className={`flex-1 py-1.5 px-3 rounded-md font-semibold text-center transition-colors flex items-center justify-center gap-2 ${
+                applyModalStep === 'preview'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <span className="h-4 w-4 rounded-full bg-black/30 flex items-center justify-center text-[10px]">2</span>
+              <span>2. Anteprima Calendario & Duplicati</span>
+            </button>
+          </div>
+
+          {/* STEP 1: CONFIGURATION */}
+          {applyModalStep === 'config' && (
+            <div className="space-y-4 max-h-[68vh] overflow-y-auto pr-1">
+              {/* Template Selector */}
+              <div>
+                <label className="text-slate-300 block font-semibold mb-1">
+                  Seleziona Modello di Processo dal Catalogo *
+                </label>
+                <Select
+                  value={selectedTemplateId}
+                  onChange={(e) => handleSelectTemplate(e.target.value)}
+                  className="bg-slate-950 border-slate-700 text-xs w-full"
+                >
+                  <option value="">Seleziona un modello...</option>
+                  {templateCatalog.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} ({t.code}) - {t.tasksCount} task, ~{t.estimatedWorkDays} gg lavorativi
+                    </option>
+                  ))}
+                </Select>
+              </div>
+
+              {/* Selected Template Highlights */}
+              {(() => {
+                const currentTmpl = templateCatalog.find((t) => t.id === selectedTemplateId);
+                if (!currentTmpl) return null;
+                return (
+                  <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-[11px]">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-bold text-slate-200">{currentTmpl.name}</span>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-400 border-blue-500/30 font-mono">
+                          v{currentTmpl.publishedVersionNumber || currentTmpl.currentVersionNumber || 1}
+                        </Badge>
+                        <Badge variant="outline" className="text-[10px] bg-purple-500/10 text-purple-400 border-purple-500/30">
+                          {currentTmpl.category}
+                        </Badge>
+                      </div>
+                    </div>
+                    {currentTmpl.description && (
+                      <p className="text-slate-400 leading-relaxed">{currentTmpl.description}</p>
+                    )}
+                    <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-850 text-slate-300">
+                      <span>• {currentTmpl.phasesCount} Fasi operative</span>
+                      <span>• {currentTmpl.milestonesCount} Milestone</span>
+                      <span>• ~{currentTmpl.estimatedWorkDays} gg lavorativi</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Schedule Parameters */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-300 block font-semibold mb-1">
+                    Data di Avvio Lavori (Giorno 1) *
+                  </label>
+                  <Input
+                    type="date"
+                    required
+                    value={templateStartDate}
+                    onChange={(e) => setTemplateStartDate(e.target.value)}
+                    className="bg-slate-950 border-slate-700"
+                  />
+                  <span className="text-[10px] text-slate-500 mt-0.5 block">
+                    Il motore calcola automaticamente il calendario escludendo sabato e domenica.
+                  </span>
+                </div>
+
+                <div>
+                  <label className="text-slate-300 block font-semibold mb-1">
+                    Assegnatario Predefinito / Fallback
+                  </label>
+                  <Select
+                    value={defaultFallbackUserId}
+                    onChange={(e) => setDefaultFallbackUserId(e.target.value)}
+                    className="bg-slate-950 border-slate-700 text-xs w-full"
+                  >
+                    <option value="">Seleziona utente...</option>
+                    {usersList.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} ({u.role})
+                      </option>
+                    ))}
+                  </Select>
+                  <span className="text-[10px] text-slate-500 mt-0.5 block">
+                    Usato se nessun assegnatario specifico è mappato al ruolo.
+                  </span>
+                </div>
+              </div>
+
+              {/* Role Mapping Section */}
+              {(() => {
+                const currentTmpl = templateCatalog.find((t) => t.id === selectedTemplateId);
+                const tmplTasks = currentTmpl?.activeVersion?.definition?.tasks || [];
+                const distinctRoles = Array.from(new Set(tmplTasks.map((t: any) => t.suggestedRole || 'generic'))) as string[];
+                if (distinctRoles.length === 0) return null;
+
+                return (
+                  <div className="space-y-2 p-3.5 bg-slate-950 rounded-xl border border-slate-800">
+                    <label className="text-slate-200 block font-semibold flex items-center gap-1.5">
+                      <Users className="h-3.5 w-3.5 text-blue-400" />
+                      <span>Mappatura Ruoli Agenzia &rarr; Membri del Team</span>
+                    </label>
+                    <p className="text-[11px] text-slate-400">
+                      Assegna automaticamente le attività a membri specifici in base al ruolo suggerito dal modello.
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                      {distinctRoles.map((roleKey) => {
+                        const foundRole = SUGGESTED_ROLES_TAXONOMY.find((r) => r.key === roleKey);
+                        const roleLabel = foundRole ? foundRole.label : roleKey;
+                        const matchingCount = tmplTasks.filter((t: any) => (t.suggestedRole || 'generic') === roleKey).length;
+
+                        return (
+                          <div key={roleKey} className="p-2 rounded-lg bg-slate-900 border border-slate-800 space-y-1">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="font-semibold text-slate-300">{roleLabel}</span>
+                              <span className="text-[10px] text-slate-500">{matchingCount} task</span>
+                            </div>
+                            <Select
+                              value={roleMappings[roleKey] || ''}
+                              onChange={(e) => setRoleMappings({ ...roleMappings, [roleKey]: e.target.value })}
+                              className="bg-slate-950 border-slate-700 text-xs w-full"
+                            >
+                              <option value="">Nessuno (usa fallback)</option>
+                              {usersList.map((u) => (
+                                <option key={u.id} value={u.id}>
+                                  {u.name} ({u.role})
+                                </option>
+                              ))}
+                            </Select>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Exclusion Checklist */}
+              {(() => {
+                const currentTmpl = templateCatalog.find((t) => t.id === selectedTemplateId);
+                const definition = currentTmpl?.activeVersion?.definition;
+                if (!definition || !definition.phases) return null;
+
+                return (
+                  <div className="space-y-2 p-3.5 bg-slate-950 rounded-xl border border-slate-800">
+                    <div className="flex items-center justify-between">
+                      <label className="text-slate-200 block font-semibold flex items-center gap-1.5">
+                        <ListTodo className="h-3.5 w-3.5 text-indigo-400" />
+                        <span>Personalizzazione Perimetro (Escludi compiti opzionali)</span>
+                      </label>
+                      <span className="text-[10px] text-slate-400">
+                        {excludedTaskCodes.length > 0 ? `${excludedTaskCodes.length} esclusi` : 'Tutti inclusi'}
+                      </span>
+                    </div>
+
+                    <div className="space-y-3 pt-1">
+                      {definition.phases.map((phase: any) => {
+                        const phaseTasks = definition.tasks?.filter((t: any) => t.phaseId === phase.id) || [];
+                        if (phaseTasks.length === 0) return null;
+
+                        return (
+                          <div key={phase.id} className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-850 space-y-1.5">
+                            <span className="text-xs font-semibold text-slate-300 block">{phase.name}</span>
+                            <div className="grid grid-cols-1 gap-1">
+                              {phaseTasks.map((task: any) => {
+                                const isExcluded = excludedTaskCodes.includes(task.id);
+                                return (
+                                  <label
+                                    key={task.id}
+                                    className="flex items-center justify-between p-1.5 rounded hover:bg-slate-850/60 cursor-pointer text-[11px]"
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="checkbox"
+                                        checked={!isExcluded}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            setExcludedTaskCodes(excludedTaskCodes.filter((id) => id !== task.id));
+                                          } else {
+                                            setExcludedTaskCodes([...excludedTaskCodes, task.id]);
+                                          }
+                                        }}
+                                        className="rounded bg-slate-800 border-slate-700"
+                                      />
+                                      <span className={isExcluded ? 'line-through text-slate-500' : 'text-slate-200'}>
+                                        {task.title}
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] font-mono text-slate-400">
+                                      {task.estimatedWorkDays} gg ({task.estimatedHours}h)
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Actions Step 1 */}
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsApplyTemplateModalOpen(false)}
+                  className="border-slate-800"
+                >
+                  Annulla
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleGeneratePreview}
+                  disabled={isPreviewLoading || !selectedTemplateId}
+                  className="bg-blue-600 hover:bg-blue-500 font-semibold gap-1.5"
+                >
+                  {isPreviewLoading ? (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      <span>Calcolo Cronoprogramma...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Genera Anteprima Calendario</span>
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 2: PREVIEW & DUPLICATE CHECKS */}
+          {applyModalStep === 'preview' && templatePreviewData && (
+            <div className="space-y-4 max-h-[68vh] overflow-y-auto pr-1">
+              {/* Preview KPI Summary */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 block">Attività da Creare</span>
+                  <span className="text-base font-bold text-white">{templatePreviewData.schedule?.tasks?.length || 0}</span>
+                </div>
+                <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 block">Milestone da Creare</span>
+                  <span className="text-base font-bold text-emerald-400">{templatePreviewData.schedule?.milestones?.length || 0}</span>
+                </div>
+                <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 block">Durata Lavorativa</span>
+                  <span className="text-base font-bold text-amber-400">~{templatePreviewData.schedule?.totalWorkDays || 0} gg lav.</span>
+                </div>
+                <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 block">Target Consegna</span>
+                  <span className="text-xs font-mono font-bold text-blue-400 pt-0.5 block">{templatePreviewData.schedule?.targetEndDate || 'N/D'}</span>
+                </div>
+              </div>
+
+              {/* Duplicate Warnings Alert */}
+              {templatePreviewData.duplicateWarnings && templatePreviewData.duplicateWarnings.length > 0 && (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-1.5 text-[11px]">
+                  <div className="font-semibold text-amber-300 flex items-center gap-1.5">
+                    <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+                    <span>Controllo Duplicati: Rilevate possibili attività già presenti ({templatePreviewData.duplicateWarnings.length})</span>
+                  </div>
+                  <div className="space-y-1 text-amber-200/90 pl-5">
+                    {templatePreviewData.duplicateWarnings.map((w: any, idx: number) => (
+                      <div key={idx}>
+                        • &ldquo;{w.templateTaskTitle}&rdquo; è simile a &ldquo;{w.existingTaskTitle}&rdquo; (Stato: {w.existingTaskStatus})
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Scheduled Tasks List */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5 text-blue-400" />
+                  <span>Dettaglio Calendario & Assegnatari Calcolati</span>
+                </h4>
+
+                <div className="divide-y divide-slate-850 rounded-xl bg-slate-950 border border-slate-800 overflow-hidden">
+                  {templatePreviewData.schedule?.tasks?.map((st: any) => {
+                    const assignedUser = usersList.find((u) => u.id === st.assignedUserId);
+                    return (
+                      <div key={st.id} className="p-3 space-y-1 hover:bg-slate-900/40 transition-colors">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-slate-200 text-xs">{st.title}</span>
+                            <span className="text-[10px] text-slate-500 font-mono">({st.estimatedWorkDays}gg / {st.estimatedHours}h)</span>
+                          </div>
+                          <div className="flex items-center gap-2 font-mono text-[11px]">
+                            <span className="text-blue-400">{st.plannedStartDate} &rarr; {st.plannedEndDate}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-3 text-[10px] text-slate-400 pt-0.5">
+                          <span>Assegnatario: <strong className="text-slate-300">{assignedUser?.name || 'Non assegnato'}</strong></span>
+                          {st.predecessors && st.predecessors.length > 0 && (
+                            <span>• Dipende da: <strong className="text-amber-400 font-mono">{st.predecessors.join(', ')}</strong></span>
+                          )}
+                          {st.checklist && st.checklist.length > 0 && (
+                            <span>• Checklist: {st.checklist.length} elementi</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Actions Step 2 */}
+              <div className="flex items-center justify-between pt-3 border-t border-slate-800">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setApplyModalStep('config')}
+                  className="border-slate-800 text-xs"
+                >
+                  &larr; Modifica Parametri
+                </Button>
+
+                <Button
+                  type="button"
+                  onClick={handleExecuteApplyTemplate}
+                  disabled={isApplyingTemplate}
+                  className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 font-semibold gap-1.5 shadow-md shadow-blue-500/20 text-xs"
+                >
+                  {isApplyingTemplate ? (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      <span>Generazione Attività in corso...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      <span>Conferma e Applica al Progetto</span>
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
       </Dialog>
     </div>
   );

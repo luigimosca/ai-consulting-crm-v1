@@ -19,7 +19,8 @@ import {
   Briefcase,
   FolderKanban,
   CheckSquare,
-  Files
+  Files,
+  Workflow
 } from 'lucide-react';
 import { cn, APP_VERSION } from '@/lib/utils';
 
@@ -82,6 +83,12 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
       href: '/crm/tasks',
       icon: CheckSquare,
       active: pathname.startsWith('/crm/tasks'),
+    },
+    {
+      label: 'Modelli di Processo',
+      href: '/crm/process-templates',
+      icon: Workflow,
+      active: pathname.startsWith('/crm/process-templates'),
     },
   ];
 
