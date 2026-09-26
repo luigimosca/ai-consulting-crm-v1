@@ -10,4 +10,4 @@ export * from './role-taxonomy';
 export * from './decision-maker-finder';
 export * from './public-company-search';
 export * from './process-templates';
-
+export * from './client-request-templates';

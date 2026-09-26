@@ -600,7 +600,7 @@ export const documents = sqliteTable(
     storageKey: text('storage_key').notNull().unique(),
     storageProvider: text('storage_provider').notNull().default('local'),
     entityType: text('entity_type', {
-      enum: ['lead', 'quote', 'approval', 'order', 'project', 'task', 'general']
+      enum: ['lead', 'quote', 'approval', 'order', 'project', 'task', 'client_request', 'general']
     }).notNull(),
     entityId: text('entity_id').notNull(),
     version: integer('version').notNull().default(1),
@@ -713,6 +713,121 @@ export const projectAppliedTemplates = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// Raccolta Materiali, Informazioni e Accessi del Cliente (Client Requests)
+// ---------------------------------------------------------------------------
+
+export const clientRequests = sqliteTable(
+  'client_requests',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id').notNull().references(() => projects.id),
+    orderId: text('order_id').references(() => orders.id),
+    companyId: text('company_id').references(() => companies.id),
+    title: text('title').notNull(),
+    description: text('description'),
+    category: text('category', {
+      enum: ['brand', 'content', 'assets', 'accesses', 'strategy', 'technical', 'general']
+    }).notNull().default('general'),
+    status: text('status', {
+      enum: ['requested', 'partially_received', 'received', 'under_review', 'approved', 'rejected', 'cancelled']
+    }).notNull().default('requested'),
+    priority: text('priority', {
+      enum: ['low', 'medium', 'high', 'urgent']
+    }).notNull().default('medium'),
+    dueDate: text('due_date'),
+    requestedByUserId: text('requested_by_user_id').notNull().references(() => users.id),
+    assignedToUserId: text('assigned_to_user_id').references(() => users.id),
+    clientVisible: integer('client_visible', { mode: 'boolean' }).notNull().default(true),
+    blocksTaskCompletion: integer('blocks_task_completion', { mode: 'boolean' }).notNull().default(false),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    receivedAt: text('received_at'),
+    approvedAt: text('approved_at'),
+    approvedByUserId: text('approved_by_user_id').references(() => users.id),
+    rejectionReason: text('rejection_reason'),
+    templateCode: text('template_code'),
+    templateVersion: integer('template_version'),
+    idempotencyKey: text('idempotency_key'),
+  },
+  (table) => ({
+    projectIdIdx: index('client_requests_project_id_idx').on(table.projectId),
+    orderIdIdx: index('client_requests_order_id_idx').on(table.orderId),
+    companyIdIdx: index('client_requests_company_id_idx').on(table.companyId),
+    statusIdx: index('client_requests_status_idx').on(table.status),
+    categoryIdx: index('client_requests_category_idx').on(table.category),
+    priorityIdx: index('client_requests_priority_idx').on(table.priority),
+    idempotencyIdx: index('client_requests_idempotency_idx').on(table.idempotencyKey),
+  })
+);
+
+export const clientRequestItems = sqliteTable(
+  'client_request_items',
+  {
+    id: text('id').primaryKey(),
+    requestId: text('request_id').notNull().references(() => clientRequests.id),
+    label: text('label').notNull(),
+    description: text('description'),
+    itemType: text('item_type', {
+      enum: ['file', 'text', 'url', 'access_confirmation', 'selection']
+    }).notNull().default('text'),
+    required: integer('required', { mode: 'boolean' }).notNull().default(true),
+    status: text('status', {
+      enum: ['missing', 'received', 'approved', 'rejected']
+    }).notNull().default('missing'),
+    valueText: text('value_text'),
+    valueUrl: text('value_url'),
+    documentId: text('document_id').references(() => documents.id),
+    sourceUrl: text('source_url'),
+    notes: text('notes'),
+    accessConfigJson: text('access_config_json'), // Per access_confirmation
+    selectionOptionsJson: text('selection_options_json'), // Per selection
+    sortOrder: integer('sort_order').notNull().default(0),
+    receivedAt: text('received_at'),
+    approvedAt: text('approved_at'),
+  },
+  (table) => ({
+    requestIdIdx: index('client_request_items_request_id_idx').on(table.requestId),
+    statusIdx: index('client_request_items_status_idx').on(table.status),
+    itemTypeIdx: index('client_request_items_type_idx').on(table.itemType),
+  })
+);
+
+export const clientRequestTaskLinks = sqliteTable(
+  'client_request_task_links',
+  {
+    id: text('id').primaryKey(),
+    requestId: text('request_id').notNull().references(() => clientRequests.id),
+    taskId: text('task_id').notNull().references(() => tasks.id),
+    relationType: text('relation_type', {
+      enum: ['blocks', 'supports']
+    }).notNull().default('blocks'),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => ({
+    requestIdIdx: index('client_req_task_links_request_id_idx').on(table.requestId),
+    taskIdIdx: index('client_req_task_links_task_id_idx').on(table.taskId),
+  })
+);
+
+export const requestComments = sqliteTable(
+  'request_comments',
+  {
+    id: text('id').primaryKey(),
+    requestId: text('request_id').notNull().references(() => clientRequests.id),
+    authorUserId: text('author_user_id').notNull().references(() => users.id),
+    content: text('content').notNull(),
+    visibility: text('visibility', {
+      enum: ['internal', 'client']
+    }).notNull().default('internal'),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => ({
+    requestIdIdx: index('request_comments_request_id_idx').on(table.requestId),
+    authorUserIdIdx: index('request_comments_author_idx').on(table.authorUserId),
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Type Exports
 // ---------------------------------------------------------------------------
 
@@ -802,4 +917,16 @@ export type NewProcessTemplateVersion = typeof processTemplateVersions.$inferIns
 
 export type ProjectAppliedTemplate = typeof projectAppliedTemplates.$inferSelect;
 export type NewProjectAppliedTemplate = typeof projectAppliedTemplates.$inferInsert;
+
+export type ClientRequest = typeof clientRequests.$inferSelect;
+export type NewClientRequest = typeof clientRequests.$inferInsert;
+
+export type ClientRequestItem = typeof clientRequestItems.$inferSelect;
+export type NewClientRequestItem = typeof clientRequestItems.$inferInsert;
+
+export type ClientRequestTaskLink = typeof clientRequestTaskLinks.$inferSelect;
+export type NewClientRequestTaskLink = typeof clientRequestTaskLinks.$inferInsert;
+
+export type RequestComment = typeof requestComments.$inferSelect;
+export type NewRequestComment = typeof requestComments.$inferInsert;
 

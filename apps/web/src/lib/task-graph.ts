@@ -1,5 +1,5 @@
-import { db, tasks, taskDependencies, projects } from '@ai-crm/db';
-import { eq, and } from 'drizzle-orm';
+import { db, tasks, taskDependencies, projects, clientRequests, clientRequestTaskLinks } from '@ai-crm/db';
+import { eq, and, notInArray } from 'drizzle-orm';
 
 /**
  * Checks whether adding a directed dependency (predecessorId -> successorId) would introduce a cycle.
@@ -72,6 +72,32 @@ export function isTaskBlocked(taskId: string): boolean {
   }
 
   return false;
+}
+
+/**
+ * Checks if a task is blocked by pending client requests.
+ */
+export function isTaskBlockedByClient(taskId: string): boolean {
+  try {
+    const links = db
+      .select({
+        reqId: clientRequestTaskLinks.requestId,
+        status: clientRequests.status,
+      })
+      .from(clientRequestTaskLinks)
+      .innerJoin(clientRequests, eq(clientRequestTaskLinks.requestId, clientRequests.id))
+      .where(
+        and(
+          eq(clientRequestTaskLinks.taskId, taskId),
+          eq(clientRequestTaskLinks.relationType, 'blocks'),
+          notInArray(clientRequests.status, ['approved', 'cancelled'])
+        )
+      )
+      .all();
+    return links.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 /**

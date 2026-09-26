@@ -10,7 +10,7 @@ import {
 } from '@ai-crm/db';
 import { eq, desc, and, or } from 'drizzle-orm';
 import { requireAuth } from '@/lib/auth';
-import { recalculateProjectProgress, isTaskBlocked } from '@/lib/task-graph';
+import { recalculateProjectProgress, isTaskBlocked, isTaskBlockedByClient } from '@/lib/task-graph';
 import { logActivity } from '@/lib/activity-logger';
 
 export const dynamic = 'force-dynamic';
@@ -75,6 +75,7 @@ export async function GET(request: Request) {
     let enriched = allTasks.map((t) => {
       const taskAssignees = allAssignments.filter((a) => a.taskId === t.id);
       const isBlocked = isTaskBlocked(t.id);
+      const blockedByClient = isTaskBlockedByClient(t.id);
       const isOverdue =
         t.plannedEndDate && t.plannedEndDate < todayStr && t.status !== 'completato';
 
@@ -86,7 +87,9 @@ export async function GET(request: Request) {
       return {
         ...t,
         assignees: taskAssignees,
-        isBlocked,
+        isBlocked: isBlocked || blockedByClient,
+        isDependencyBlocked: isBlocked,
+        blockedByClient,
         isOverdue: !!isOverdue,
         checklistCount: checklist.length,
         checklistDoneCount: checklist.filter((c: any) => c.completed).length,
@@ -114,7 +117,7 @@ export async function GET(request: Request) {
     }
 
     if (isBlockedParam === 'true') {
-      enriched = enriched.filter((t) => t.isBlocked);
+      enriched = enriched.filter((t) => t.isBlocked || t.blockedByClient);
     }
 
     if (q) {

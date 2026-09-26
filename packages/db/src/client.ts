@@ -625,6 +625,84 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS proj_applied_templates_project_id_idx ON project_applied_templates(project_id);
     CREATE INDEX IF NOT EXISTS proj_applied_templates_template_id_idx ON project_applied_templates(template_id);
     CREATE INDEX IF NOT EXISTS proj_applied_templates_idempotency_idx ON project_applied_templates(idempotency_key);
+
+    -- Raccolta Materiali, Informazioni e Accessi del Cliente (Client Requests)
+    CREATE TABLE IF NOT EXISTS client_requests (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      order_id TEXT REFERENCES orders(id),
+      company_id TEXT REFERENCES companies(id),
+      title TEXT NOT NULL,
+      description TEXT,
+      category TEXT NOT NULL DEFAULT 'general',
+      status TEXT NOT NULL DEFAULT 'requested',
+      priority TEXT NOT NULL DEFAULT 'medium',
+      due_date TEXT,
+      requested_by_user_id TEXT NOT NULL REFERENCES users(id),
+      assigned_to_user_id TEXT REFERENCES users(id),
+      client_visible INTEGER NOT NULL DEFAULT 1,
+      blocks_task_completion INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      received_at TEXT,
+      approved_at TEXT,
+      approved_by_user_id TEXT REFERENCES users(id),
+      rejection_reason TEXT,
+      template_code TEXT,
+      template_version INTEGER,
+      idempotency_key TEXT
+    );
+    CREATE INDEX IF NOT EXISTS client_requests_project_id_idx ON client_requests(project_id);
+    CREATE INDEX IF NOT EXISTS client_requests_order_id_idx ON client_requests(order_id);
+    CREATE INDEX IF NOT EXISTS client_requests_company_id_idx ON client_requests(company_id);
+    CREATE INDEX IF NOT EXISTS client_requests_status_idx ON client_requests(status);
+    CREATE INDEX IF NOT EXISTS client_requests_category_idx ON client_requests(category);
+    CREATE INDEX IF NOT EXISTS client_requests_priority_idx ON client_requests(priority);
+    CREATE INDEX IF NOT EXISTS client_requests_idempotency_idx ON client_requests(idempotency_key);
+
+    CREATE TABLE IF NOT EXISTS client_request_items (
+      id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL REFERENCES client_requests(id),
+      label TEXT NOT NULL,
+      description TEXT,
+      item_type TEXT NOT NULL DEFAULT 'text',
+      required INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL DEFAULT 'missing',
+      value_text TEXT,
+      value_url TEXT,
+      document_id TEXT REFERENCES documents(id),
+      source_url TEXT,
+      notes TEXT,
+      access_config_json TEXT,
+      selection_options_json TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      received_at TEXT,
+      approved_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS client_request_items_request_id_idx ON client_request_items(request_id);
+    CREATE INDEX IF NOT EXISTS client_request_items_status_idx ON client_request_items(status);
+    CREATE INDEX IF NOT EXISTS client_request_items_type_idx ON client_request_items(item_type);
+
+    CREATE TABLE IF NOT EXISTS client_request_task_links (
+      id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL REFERENCES client_requests(id),
+      task_id TEXT NOT NULL REFERENCES tasks(id),
+      relation_type TEXT NOT NULL DEFAULT 'blocks',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS client_req_task_links_request_id_idx ON client_request_task_links(request_id);
+    CREATE INDEX IF NOT EXISTS client_req_task_links_task_id_idx ON client_request_task_links(task_id);
+
+    CREATE TABLE IF NOT EXISTS request_comments (
+      id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL REFERENCES client_requests(id),
+      author_user_id TEXT NOT NULL REFERENCES users(id),
+      content TEXT NOT NULL,
+      visibility TEXT NOT NULL DEFAULT 'internal',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS request_comments_request_id_idx ON request_comments(request_id);
+    CREATE INDEX IF NOT EXISTS request_comments_author_idx ON request_comments(author_user_id);
   `);
 
   // Migrazione retrocompatibile per colonne aggiuntive se le tabelle esistevano già

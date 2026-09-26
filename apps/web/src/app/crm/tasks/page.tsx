@@ -41,6 +41,7 @@ export default function GlobalTasksPage() {
   const [projectFilter, setProjectFilter] = useState('all');
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [blockedOnly, setBlockedOnly] = useState(false);
+  const [clientBlockedOnly, setClientBlockedOnly] = useState(false);
 
   // Modal
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
@@ -78,7 +79,11 @@ export default function GlobalTasksPage() {
 
       if (tasksRes.ok) {
         const data = await tasksRes.json();
-        setTasksList(data.tasks || []);
+        let list = data.tasks || [];
+        if (clientBlockedOnly) {
+          list = list.filter((t: any) => t.blockedByClient);
+        }
+        setTasksList(list);
       }
 
       if (projRes.ok) {
@@ -99,7 +104,7 @@ export default function GlobalTasksPage() {
 
   useEffect(() => {
     fetchTasks();
-  }, [statusFilter, priorityFilter, assigneeFilter, projectFilter, overdueOnly, blockedOnly]);
+  }, [statusFilter, priorityFilter, assigneeFilter, projectFilter, overdueOnly, blockedOnly, clientBlockedOnly]);
 
   const handleOpenCreateTask = () => {
     setEditingTask(null);
@@ -365,6 +370,19 @@ export default function GlobalTasksPage() {
               <span>Solo bloccati (dipendenze)</span>
             </span>
           </label>
+
+          <label className="flex items-center gap-1.5 cursor-pointer text-slate-400 hover:text-slate-200">
+            <input
+              type="checkbox"
+              checked={clientBlockedOnly}
+              onChange={(e) => setClientBlockedOnly(e.target.checked)}
+              className="rounded bg-slate-900 border-slate-800 text-rose-500"
+            />
+            <span className="flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3 text-rose-400" />
+              <span>Solo bloccati da cliente</span>
+            </span>
+          </label>
         </div>
       </div>
 
@@ -398,7 +416,19 @@ export default function GlobalTasksPage() {
                           {t.projectCode || 'PROJ'}
                         </span>
                         <div className="flex items-center gap-1">
-                          {t.isBlocked && <span title="Bloccato"><AlertTriangle className="h-3.5 w-3.5 text-amber-400" /></span>}
+                          {t.blockedByClient && (
+                            <span title="Bloccato in attesa di materiali o accessi dal cliente">
+                              <Badge variant="outline" className="bg-rose-950/80 text-rose-300 border-rose-700/80 text-[9px] px-1.5 py-0 gap-1 flex items-center">
+                                <AlertTriangle className="h-2.5 w-2.5" />
+                                Cliente
+                              </Badge>
+                            </span>
+                          )}
+                          {t.isDependencyBlocked && !t.blockedByClient && (
+                            <span title="Bloccato da dipendenza">
+                              <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
+                            </span>
+                          )}
                           {t.isOverdue && <span title="In Ritardo"><Clock className="h-3.5 w-3.5 text-rose-400" /></span>}
                           <span className={`text-[9px] uppercase px-1.5 py-0.5 rounded font-semibold ${
                             t.priority === 'urgente' ? 'bg-rose-950 text-rose-300' :
@@ -513,8 +543,20 @@ export default function GlobalTasksPage() {
                         </Link>
                       </td>
                       <td className="py-3 px-4">
-                        <div className="flex items-center gap-1.5">
-                          {t.isBlocked && <span title="Bloccato"><AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" /></span>}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {t.blockedByClient && (
+                            <span title="Bloccato in attesa di materiali o accessi dal cliente">
+                              <Badge variant="outline" className="bg-rose-950/80 text-rose-300 border-rose-700/80 text-[9px] px-1.5 py-0 gap-1 flex items-center">
+                                <AlertTriangle className="h-2.5 w-2.5" />
+                                Bloccato da cliente
+                              </Badge>
+                            </span>
+                          )}
+                          {t.isDependencyBlocked && !t.blockedByClient && (
+                            <span title="Bloccato da dipendenza">
+                              <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                            </span>
+                          )}
                           {t.isOverdue && <span title="In ritardo"><Clock className="h-3.5 w-3.5 text-rose-400 shrink-0" /></span>}
                           <span className={`font-semibold ${t.status === 'completato' ? 'line-through text-slate-400' : 'text-slate-200'}`}>
                             {t.title}

@@ -39,8 +39,10 @@ import {
   CheckCircle,
   HelpCircle,
   RefreshCw,
+  Inbox,
 } from 'lucide-react';
 import { SUGGESTED_ROLES_TAXONOMY } from '@ai-crm/ai';
+import { ClientRequestsTab } from '@/components/crm/ClientRequestsTab';
 
 export default function ProjectDetailPage({
   params,
@@ -53,7 +55,7 @@ export default function ProjectDetailPage({
   const [projectData, setProjectData] = useState<any>(null);
   const [usersList, setUsersList] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'gantt' | 'documents'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'gantt' | 'documents' | 'materials'>('overview');
 
   // Process Templates State
   const [appliedTemplates, setAppliedTemplates] = useState<any[]>([]);
@@ -956,6 +958,19 @@ export default function ProjectDetailPage({
           <FileText className="h-4 w-4 text-emerald-400" />
           <span>Documenti & File ({documents.length})</span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('materials')}
+          className={`px-4 py-2.5 rounded-t-lg font-semibold transition-colors flex items-center gap-2 ${
+            activeTab === 'materials'
+              ? 'bg-slate-900 text-white border-t-2 border-rose-500'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900/40'
+          }`}
+        >
+          <Inbox className="h-4 w-4 text-rose-400" />
+          <span>Materiali & Richieste Cliente</span>
+        </button>
       </div>
 
       {/* TAB 1: PANORAMICA & MILESTONE */}
@@ -1373,6 +1388,18 @@ export default function ProjectDetailPage({
             </div>
           </Card>
         </div>
+      )}
+
+      {/* TAB 5: MATERIALI & RICHIESTE CLIENTE */}
+      {activeTab === 'materials' && (
+        <ClientRequestsTab
+          projectId={id}
+          projectTitle={project.title}
+          projectCode={project.code}
+          tasksList={tasks}
+          documentsList={documents}
+          onRefreshProject={fetchProject}
+        />
       )}
 
       {/* MODAL: TASK CREATE / EDIT */}
