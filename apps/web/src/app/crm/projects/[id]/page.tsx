@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { Dialog } from '@/components/ui/Dialog';
 import { GanttChart } from '@/components/crm/GanttChart';
 import {
   ArrowLeft,
@@ -31,6 +32,8 @@ import {
   CheckSquare,
   Square,
   ArrowRight,
+  ShieldCheck,
+  Sparkles,
 } from 'lucide-react';
 
 export default function ProjectDetailPage({
@@ -78,10 +81,17 @@ export default function ProjectDetailPage({
   const [docTitle, setDocTitle] = useState('');
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
 
+  // Conversion & Linking to Order Modal
+  const [isLinkOrderModalOpen, setIsLinkOrderModalOpen] = useState(false);
+  const [selectedOrderIdToLink, setSelectedOrderIdToLink] = useState('');
+  const [ordersList, setOrdersList] = useState<any[]>([]);
+  const [isLinkingOrder, setIsLinkingOrder] = useState(false);
+
   const [isEditProjectOpen, setIsEditProjectOpen] = useState(false);
   const [projectForm, setProjectForm] = useState({
     title: '',
     description: '',
+    projectType: 'client',
     status: 'pianificato',
     startDate: '',
     dueDate: '',
@@ -92,9 +102,10 @@ export default function ProjectDetailPage({
   const fetchProject = async () => {
     setIsLoading(true);
     try {
-      const [projRes, usersRes] = await Promise.all([
+      const [projRes, usersRes, ordersRes] = await Promise.all([
         fetch(`/api/projects/${id}?t=${Date.now()}`),
         fetch('/api/users'),
+        fetch('/api/orders'),
       ]);
 
       if (!projRes.ok) {
@@ -110,10 +121,16 @@ export default function ProjectDetailPage({
         setUsersList(uData.users || []);
       }
 
+      if (ordersRes.ok) {
+        const oData = await ordersRes.json();
+        setOrdersList(oData.orders || []);
+      }
+
       if (data.project) {
         setProjectForm({
           title: data.project.title || '',
           description: data.project.description || '',
+          projectType: data.project.projectType || 'client',
           status: data.project.status || 'pianificato',
           startDate: data.project.startDate || '',
           dueDate: data.project.dueDate || '',
@@ -131,6 +148,36 @@ export default function ProjectDetailPage({
   useEffect(() => {
     fetchProject();
   }, [id]);
+
+  const handleLinkToOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedOrderIdToLink) return;
+
+    setIsLinkingOrder(true);
+    try {
+      const res = await fetch(`/api/projects/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: selectedOrderIdToLink,
+          projectType: 'client',
+        }),
+      });
+
+      if (res.ok) {
+        setIsLinkOrderModalOpen(false);
+        setSelectedOrderIdToLink('');
+        fetchProject();
+      } else {
+        const errData = await res.json();
+        alert(errData.error || 'Errore nel collegamento della commessa');
+      }
+    } catch (err) {
+      console.error('Failed to link order:', err);
+    } finally {
+      setIsLinkingOrder(false);
+    }
+  };
 
   const handleUpdateProjectStatus = async (newStatus: string) => {
     try {
@@ -168,6 +215,7 @@ export default function ProjectDetailPage({
     setEditingTask(null);
     setTaskForm({
       title: '',
+
       description: '',
       milestoneId: '',
       status: 'da_fare',
@@ -406,7 +454,34 @@ export default function ProjectDetailPage({
     );
   }
 
-  const { project, order, lead, manager, milestones = [], tasks = [], documents = [] } = projectData;
+  const getTypeBadge = (type: string) => {
+    switch (type) {
+      case 'internal':
+        return (
+          <Badge variant="outline" className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30 gap-1 text-[11px]">
+            <ShieldCheck className="h-3 w-3" />
+            <span>Interno / R&D</span>
+          </Badge>
+        );
+      case 'presales':
+        return (
+          <Badge variant="outline" className="bg-purple-500/15 text-purple-300 border-purple-500/30 gap-1 text-[11px]">
+            <Sparkles className="h-3 w-3" />
+            <span>Pre-vendita / POC</span>
+          </Badge>
+        );
+      case 'client':
+      default:
+        return (
+          <Badge variant="outline" className="bg-blue-500/15 text-blue-300 border-blue-500/30 gap-1 text-[11px]">
+            <Building2 className="h-3 w-3" />
+            <span>Cliente</span>
+          </Badge>
+        );
+    }
+  };
+
+  const { project, order, lead, company, manager, milestones = [], tasks = [], documents = [] } = projectData;
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -485,6 +560,18 @@ export default function ProjectDetailPage({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {!project.orderId && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setIsLinkOrderModalOpen(true)}
+              className="text-xs gap-1.5 bg-indigo-950/40 text-indigo-300 border-indigo-800/80 hover:bg-indigo-900/50"
+            >
+              <Briefcase className="h-3.5 w-3.5 text-indigo-400" />
+              <span>Collega a Commessa</span>
+            </Button>
+          )}
+
           <Button
             size="sm"
             variant="outline"
@@ -523,6 +610,7 @@ export default function ProjectDetailPage({
                 <span className="font-mono font-bold text-sm bg-blue-500/10 text-blue-400 px-2.5 py-0.5 rounded border border-blue-500/30">
                   {project.code}
                 </span>
+                {getTypeBadge(project.projectType)}
                 {getStatusBadge(project.status)}
               </div>
 
@@ -534,12 +622,26 @@ export default function ProjectDetailPage({
                   </div>
                 )}
 
-                {lead && (
+                {(company || lead) && (
                   <>
                     <span>•</span>
                     <div className="flex items-center gap-1 text-slate-300">
                       <Building2 className="h-3.5 w-3.5 text-slate-400" />
-                      <span>Cliente: <Link href={`/crm/leads/${lead.id}`} className="text-blue-400 hover:underline">{lead.companyName}</Link></span>
+                      {lead ? (
+                        <span>Lead: <Link href={`/crm/leads/${lead.id}`} className="text-blue-400 hover:underline">{lead.companyName}</Link></span>
+                      ) : (
+                        <span>Azienda: <span className="text-slate-200 font-medium">{company?.name}</span></span>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {project.projectType === 'internal' && !order && !company && !lead && (
+                  <>
+                    <span>•</span>
+                    <div className="flex items-center gap-1 text-emerald-400">
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      <span>Iniziativa Interna</span>
                     </div>
                   </>
                 )}
@@ -552,6 +654,7 @@ export default function ProjectDetailPage({
               </div>
             </div>
           </div>
+
 
           {/* Quick Status Select */}
           <div className="w-full md:w-52 space-y-1.5">
@@ -1399,94 +1502,168 @@ export default function ProjectDetailPage({
         </div>
       )}
 
-      {/* MODAL: EDIT PROJECT INFO */}
-      {isEditProjectOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-6 max-w-lg w-full space-y-4">
-            <h3 className="text-base font-bold text-white">Modifica Dettagli Progetto</h3>
-            <form onSubmit={handleSaveProjectDetails} className="space-y-4 text-xs">
-              <div className="space-y-1">
-                <label className="text-slate-400 block font-medium">Titolo Progetto *</label>
-                <Input
-                  required
-                  value={projectForm.title}
-                  onChange={(e) => setProjectForm({ ...projectForm, title: e.target.value })}
-                  className="bg-slate-900 border-slate-800"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-slate-400 block font-medium">Descrizione</label>
-                <textarea
-                  rows={3}
-                  value={projectForm.description}
-                  onChange={(e) => setProjectForm({ ...projectForm, description: e.target.value })}
-                  className="w-full rounded-lg bg-slate-900 border border-slate-800 p-2 text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-slate-400 block font-medium">Data Inizio</label>
-                  <Input
-                    type="date"
-                    value={projectForm.startDate}
-                    onChange={(e) => setProjectForm({ ...projectForm, startDate: e.target.value })}
-                    className="bg-slate-900 border-slate-800"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-slate-400 block font-medium">Data Scadenza</label>
-                  <Input
-                    type="date"
-                    value={projectForm.dueDate}
-                    onChange={(e) => setProjectForm({ ...projectForm, dueDate: e.target.value })}
-                    className="bg-slate-900 border-slate-800"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-slate-400 block font-medium">Budget Ore Totali</label>
-                  <Input
-                    type="number"
-                    value={projectForm.budgetHours}
-                    onChange={(e) => setProjectForm({ ...projectForm, budgetHours: Number(e.target.value) })}
-                    className="bg-slate-900 border-slate-800"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-slate-400 block font-medium">Project Manager</label>
-                  <Select
-                    value={projectForm.managerId}
-                    onChange={(e) => setProjectForm({ ...projectForm, managerId: e.target.value })}
-                    className="bg-slate-900 border-slate-800 text-xs w-full"
-                  >
-                    <option value="">Seleziona manager</option>
-                    {usersList.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.name} ({u.role})
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <Button type="button" variant="ghost" onClick={() => setIsEditProjectOpen(false)}>
-                  Annulla
-                </Button>
-                <Button type="submit" className="bg-blue-600 hover:bg-blue-500">
-                  Salva Modifiche
-                </Button>
-              </div>
-            </form>
+      {/* MODAL: LINK TO ORDER (CONVERSION) */}
+      <Dialog
+        isOpen={isLinkOrderModalOpen}
+        onClose={() => setIsLinkOrderModalOpen(false)}
+        title="Collega a Commessa Operativa"
+        description="Associa questo progetto a una commessa cliente. Tutte le attività, milestone e documenti saranno integralmente preservati."
+        size="lg"
+      >
+        <form onSubmit={handleLinkToOrder} className="space-y-4 text-xs">
+          <div>
+            <label className="block text-slate-300 font-semibold mb-1">
+              Seleziona Commessa Cliente *
+            </label>
+            <Select
+              required
+              value={selectedOrderIdToLink}
+              onChange={(e) => setSelectedOrderIdToLink(e.target.value)}
+              className="bg-slate-950 border-slate-700 text-xs w-full"
+            >
+              <option value="">Seleziona una commessa...</option>
+              {ordersList.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.code} - {o.title} {o.leadCompanyName ? `(${o.leadCompanyName})` : ''}
+                </option>
+              ))}
+            </Select>
           </div>
-        </div>
-      )}
+
+          <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400 space-y-1">
+            <div className="font-semibold text-slate-300 flex items-center gap-1">
+              <Briefcase className="h-3.5 w-3.5 text-indigo-400" />
+              <span>Conservazione integrale dei dati & Audit</span>
+            </div>
+            <p>
+              Il tipo di progetto diventerà &ldquo;Cliente&rdquo; e verrà collegato alla commessa selezionata. Nessuna attività o documento verrà duplicato o rimosso.
+            </p>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsLinkOrderModalOpen(false)}
+              className="border-slate-800"
+            >
+              Annulla
+            </Button>
+            <Button
+              type="submit"
+              disabled={isLinkingOrder || !selectedOrderIdToLink}
+              className="bg-indigo-600 hover:bg-indigo-500 font-semibold"
+            >
+              {isLinkingOrder ? 'Collegamento in corso...' : 'Conferma e Collega'}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* MODAL: EDIT PROJECT INFO */}
+      <Dialog
+        isOpen={isEditProjectOpen}
+        onClose={() => setIsEditProjectOpen(false)}
+        title="Modifica Dettagli Progetto"
+        description="Aggiorna i parametri di pianificazione e la tipologia del progetto."
+        size="lg"
+      >
+        <form onSubmit={handleSaveProjectDetails} className="space-y-4 text-xs">
+          <div>
+            <label className="text-slate-300 block font-semibold mb-1">Titolo Progetto *</label>
+            <Input
+              required
+              value={projectForm.title}
+              onChange={(e) => setProjectForm({ ...projectForm, title: e.target.value })}
+              className="bg-slate-950 border-slate-700"
+            />
+          </div>
+
+          <div>
+            <label className="text-slate-300 block font-semibold mb-1">Tipologia di Progetto</label>
+            <Select
+              value={projectForm.projectType}
+              onChange={(e) => setProjectForm({ ...projectForm, projectType: e.target.value as any })}
+              className="bg-slate-950 border-slate-700 text-xs w-full"
+            >
+              <option value="client">Cliente (Progetto commessa / cliente)</option>
+              <option value="presales">Pre-vendita (POC / Studio fattibilità)</option>
+              <option value="internal">Interno (R&D / Iniziative aziendali)</option>
+            </Select>
+          </div>
+
+          <div>
+            <label className="text-slate-300 block font-semibold mb-1">Descrizione & Obiettivi</label>
+            <textarea
+              rows={3}
+              value={projectForm.description}
+              onChange={(e) => setProjectForm({ ...projectForm, description: e.target.value })}
+              className="w-full rounded-lg bg-slate-950 border border-slate-700 p-2.5 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-slate-300 block font-semibold mb-1">Data Inizio</label>
+              <Input
+                type="date"
+                value={projectForm.startDate}
+                onChange={(e) => setProjectForm({ ...projectForm, startDate: e.target.value })}
+                className="bg-slate-950 border-slate-700"
+              />
+            </div>
+
+            <div>
+              <label className="text-slate-300 block font-semibold mb-1">Data Scadenza</label>
+              <Input
+                type="date"
+                value={projectForm.dueDate}
+                onChange={(e) => setProjectForm({ ...projectForm, dueDate: e.target.value })}
+                className="bg-slate-950 border-slate-700"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-slate-300 block font-semibold mb-1">Budget Ore Totali</label>
+              <Input
+                type="number"
+                min="0"
+                value={projectForm.budgetHours}
+                onChange={(e) => setProjectForm({ ...projectForm, budgetHours: Number(e.target.value) })}
+                className="bg-slate-950 border-slate-700"
+              />
+            </div>
+
+            <div>
+              <label className="text-slate-300 block font-semibold mb-1">Project Manager</label>
+              <Select
+                value={projectForm.managerId}
+                onChange={(e) => setProjectForm({ ...projectForm, managerId: e.target.value })}
+                className="bg-slate-950 border-slate-700 text-xs w-full"
+              >
+                <option value="">Seleziona manager</option>
+                {usersList.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.role})
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+            <Button type="button" variant="outline" onClick={() => setIsEditProjectOpen(false)} className="border-slate-800">
+              Annulla
+            </Button>
+            <Button type="submit" className="bg-blue-600 hover:bg-blue-500 font-semibold">
+              Salva Modifiche
+            </Button>
+          </div>
+        </form>
+      </Dialog>
     </div>
   );
 }
+

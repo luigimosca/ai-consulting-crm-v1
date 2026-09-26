@@ -452,7 +452,12 @@ export const projects = sqliteTable(
   'projects',
   {
     id: text('id').primaryKey(),
-    orderId: text('order_id').notNull().references(() => orders.id),
+    projectType: text('project_type', {
+      enum: ['internal', 'presales', 'client']
+    }).notNull().default('client'),
+    orderId: text('order_id').references(() => orders.id), // Nullable for internal & presales
+    leadId: text('lead_id').references(() => leads.id), // Optional for presales
+    companyId: text('company_id').references(() => companies.id), // Required for client
     code: text('code').notNull(), // e.g. PRJ-2026-0001
     title: text('title').notNull(),
     description: text('description'),
@@ -470,11 +475,15 @@ export const projects = sqliteTable(
     updatedAt: text('updated_at').notNull(),
   },
   (table) => ({
+    projectTypeIdx: index('projects_project_type_idx').on(table.projectType),
     orderIdIdx: index('projects_order_id_idx').on(table.orderId),
+    leadIdIdx: index('projects_lead_id_idx').on(table.leadId),
+    companyIdIdx: index('projects_company_id_idx').on(table.companyId),
     statusIdx: index('projects_status_idx').on(table.status),
     managerIdIdx: index('projects_manager_id_idx').on(table.managerId),
   })
 );
+
 
 export const projectMilestones = sqliteTable(
   'project_milestones',

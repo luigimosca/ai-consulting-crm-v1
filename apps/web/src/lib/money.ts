@@ -106,3 +106,22 @@ export function parseInputToCents(val: string | number | null | undefined): numb
   if (isNaN(num)) return 0;
   return Math.round(num * 100);
 }
+
+export function formatDiscountDisplay(
+  cents: number | null | undefined,
+  currency: string = 'EUR'
+): string {
+  const safe = Math.max(0, cents || 0);
+  if (safe === 0) {
+    return formatCentsToCurrency(0, currency);
+  }
+  return `- ${formatCentsToCurrency(safe, currency)}`;
+}
+
+export function formatCentsToInput(cents: number | null | undefined): string {
+  if (!cents || isNaN(cents)) return '0';
+  const val = cents / 100;
+  return Number.isInteger(val) ? val.toString() : val.toFixed(2);
+}
+
+

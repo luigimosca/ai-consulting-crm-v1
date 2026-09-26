@@ -48,7 +48,9 @@ export async function GET(request: Request) {
     const allProjects = db.select({ orderId: projects.orderId, id: projects.id }).from(projects).all();
     const projectCounts = new Map<string, number>();
     for (const p of allProjects) {
-      projectCounts.set(p.orderId, (projectCounts.get(p.orderId) || 0) + 1);
+      if (p.orderId) {
+        projectCounts.set(p.orderId, (projectCounts.get(p.orderId) || 0) + 1);
+      }
     }
 
     let results = allOrders.map((o) => ({

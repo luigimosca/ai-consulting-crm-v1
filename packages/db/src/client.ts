@@ -445,7 +445,10 @@ export function initDatabase() {
 
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
-      order_id TEXT NOT NULL REFERENCES orders(id),
+      project_type TEXT NOT NULL DEFAULT 'client',
+      order_id TEXT REFERENCES orders(id),
+      lead_id TEXT REFERENCES leads(id),
+      company_id TEXT REFERENCES companies(id),
       code TEXT NOT NULL,
       title TEXT NOT NULL,
       description TEXT,
@@ -579,14 +582,66 @@ export function initDatabase() {
     'ALTER TABLE tasks ADD COLUMN actual_hours REAL DEFAULT 0',
     'ALTER TABLE tasks ADD COLUMN progress_percent INTEGER DEFAULT 0',
     'ALTER TABLE tasks ADD COLUMN checklist_json TEXT DEFAULT "[]"',
+    'ALTER TABLE projects ADD COLUMN project_type TEXT NOT NULL DEFAULT "client"',
+    'ALTER TABLE projects ADD COLUMN lead_id TEXT',
+    'ALTER TABLE projects ADD COLUMN company_id TEXT',
+    'CREATE INDEX IF NOT EXISTS projects_project_type_idx ON projects(project_type)',
+    'CREATE INDEX IF NOT EXISTS projects_lead_id_idx ON projects(lead_id)',
+    'CREATE INDEX IF NOT EXISTS projects_company_id_idx ON projects(company_id)',
   ];
   for (const m of migrations) {
     try {
       sqlite.exec(m);
     } catch {}
   }
+
+  // Se la tabella projects ha ancora il vincolo NOT NULL su order_id, migriamo la tabella preservando tutti i dati
+  try {
+    const tableInfo = sqlite.pragma('table_info(projects)') as Array<{ name: string; notnull: number }>;
+    const orderIdCol = tableInfo.find((col) => col.name === 'order_id');
+    if (orderIdCol && orderIdCol.notnull === 1) {
+      sqlite.exec(`
+        PRAGMA foreign_keys=off;
+        CREATE TABLE IF NOT EXISTS projects_dg_tmp (
+          id TEXT PRIMARY KEY,
+          project_type TEXT NOT NULL DEFAULT 'client',
+          order_id TEXT REFERENCES orders(id),
+          lead_id TEXT REFERENCES leads(id),
+          company_id TEXT REFERENCES companies(id),
+          code TEXT NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT,
+          status TEXT NOT NULL DEFAULT 'pianificato',
+          manager_id TEXT REFERENCES users(id),
+          start_date TEXT,
+          due_date TEXT,
+          completed_at TEXT,
+          progress_percent INTEGER NOT NULL DEFAULT 0,
+          budget_hours REAL DEFAULT 0,
+          created_by TEXT NOT NULL REFERENCES users(id),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO projects_dg_tmp (id, project_type, order_id, lead_id, company_id, code, title, description, status, manager_id, start_date, due_date, completed_at, progress_percent, budget_hours, created_by, created_at, updated_at)
+        SELECT id, COALESCE(project_type, 'client'), order_id, lead_id, company_id, code, title, description, status, manager_id, start_date, due_date, completed_at, progress_percent, budget_hours, created_by, created_at, updated_at FROM projects;
+        DROP TABLE projects;
+        ALTER TABLE projects_dg_tmp RENAME TO projects;
+        CREATE INDEX IF NOT EXISTS projects_project_type_idx ON projects(project_type);
+        CREATE INDEX IF NOT EXISTS projects_order_id_idx ON projects(order_id);
+        CREATE INDEX IF NOT EXISTS projects_lead_id_idx ON projects(lead_id);
+        CREATE INDEX IF NOT EXISTS projects_company_id_idx ON projects(company_id);
+        CREATE INDEX IF NOT EXISTS projects_status_idx ON projects(status);
+        CREATE INDEX IF NOT EXISTS projects_manager_id_idx ON projects(manager_id);
+        PRAGMA foreign_keys=on;
+      `);
+    }
+  } catch (err) {
+    console.error('Migration error making order_id nullable:', err);
+  }
 }
 
 // Auto-run initDatabase on client import
 initDatabase();
+
+
 

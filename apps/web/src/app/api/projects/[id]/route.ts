@@ -4,6 +4,7 @@ import {
   projects,
   orders,
   leads,
+  companies,
   projectMilestones,
   tasks,
   taskAssignments,
@@ -31,11 +32,24 @@ export async function GET(
       return NextResponse.json({ error: 'Progetto non trovato' }, { status: 404 });
     }
 
-    // Commessa & Lead
-    const order = db.select().from(orders).where(eq(orders.id, project.orderId)).get();
+    // Commessa (if linked)
+    let order = null;
+    if (project.orderId) {
+      order = db.select().from(orders).where(eq(orders.id, project.orderId)).get();
+    }
+
+    // Lead (direct or via order)
+    const effectiveLeadId = project.leadId || order?.leadId || null;
     let lead = null;
-    if (order?.leadId) {
-      lead = db.select().from(leads).where(eq(leads.id, order.leadId)).get();
+    if (effectiveLeadId) {
+      lead = db.select().from(leads).where(eq(leads.id, effectiveLeadId)).get();
+    }
+
+    // Company (direct or via order)
+    const effectiveCompanyId = project.companyId || order?.companyId || null;
+    let company = null;
+    if (effectiveCompanyId) {
+      company = db.select().from(companies).where(eq(companies.id, effectiveCompanyId)).get();
     }
 
     // Manager
@@ -105,6 +119,7 @@ export async function GET(
       project,
       order,
       lead,
+      company,
       manager,
       milestones,
       tasks: tasksEnriched,
@@ -134,13 +149,48 @@ export async function PATCH(
 
     const now = new Date().toISOString();
     const updates: any = { updatedAt: now };
+    const beforeSnapshot = { ...project };
 
-    if (body.title !== undefined) updates.title = body.title;
+    if (body.title !== undefined) updates.title = body.title.trim();
     if (body.description !== undefined) updates.description = body.description;
     if (body.managerId !== undefined) updates.managerId = body.managerId;
     if (body.startDate !== undefined) updates.startDate = body.startDate;
     if (body.dueDate !== undefined) updates.dueDate = body.dueDate;
     if (body.budgetHours !== undefined) updates.budgetHours = Number(body.budgetHours) || 0;
+    if (body.leadId !== undefined) updates.leadId = body.leadId;
+    if (body.companyId !== undefined) updates.companyId = body.companyId;
+
+    // Conversion or project type change
+    let isConversion = false;
+    if (body.projectType !== undefined && body.projectType !== project.projectType) {
+      if (!['internal', 'presales', 'client'].includes(body.projectType)) {
+        return NextResponse.json(
+          { error: 'projectType non valido. Valori ammessi: internal, presales, client' },
+          { status: 400 }
+        );
+      }
+      updates.projectType = body.projectType;
+      if (project.projectType === 'presales' && body.projectType === 'client') {
+        isConversion = true;
+      }
+    }
+
+    // Linking to order
+    if (body.orderId !== undefined && body.orderId !== project.orderId) {
+      if (body.orderId) {
+        const order = db.select().from(orders).where(eq(orders.id, body.orderId)).get();
+        if (!order) {
+          return NextResponse.json({ error: 'Commessa specificata non trovata' }, { status: 404 });
+        }
+        updates.orderId = order.id;
+        updates.projectType = 'client';
+        if (order.leadId && !updates.leadId) updates.leadId = order.leadId;
+        if (order.companyId && !updates.companyId) updates.companyId = order.companyId;
+        isConversion = true;
+      } else {
+        updates.orderId = null;
+      }
+    }
 
     if (body.status !== undefined && body.status !== project.status) {
       updates.status = body.status;
@@ -152,15 +202,26 @@ export async function PATCH(
 
     db.update(projects).set(updates).where(eq(projects.id, id)).run();
 
+    // Log activity with before & after snapshots
+    const action = isConversion ? 'project_converted_to_client' : 'project_updated';
     await logActivity({
       entityType: 'project',
       entityId: id,
-      action: 'project_updated',
+      action,
       performedBy: user.userId,
-      details: updates,
+      details: {
+        isConversion,
+        changedFields: Object.keys(updates),
+      },
+      before: beforeSnapshot,
+      after: { ...project, ...updates },
     });
 
-    return NextResponse.json({ success: true, message: 'Progetto aggiornato con successo' });
+    return NextResponse.json({
+      success: true,
+      message: isConversion ? 'Progetto convertito e collegato alla commessa con successo' : 'Progetto aggiornato con successo',
+      project: { ...project, ...updates },
+    });
   } catch (error: any) {
     if (error?.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 });
@@ -168,3 +229,4 @@ export async function PATCH(
     return NextResponse.json({ error: error?.message || 'Errore aggiornamento progetto' }, { status: 500 });
   }
 }
+
