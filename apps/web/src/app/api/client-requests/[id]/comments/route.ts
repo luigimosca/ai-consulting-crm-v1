@@ -22,17 +22,23 @@ export async function POST(
 
     const isInternal = typeof body.isInternal === 'boolean' ? body.isInternal : false;
 
-    const comment = await addRequestComment({
-      requestId: id,
-      authorUserId: user.userId,
-      content: body.message.trim(),
-      visibility: isInternal ? 'internal' : 'client',
-    });
+    const comment = await addRequestComment(
+      {
+        requestId: id,
+        authorUserId: user.userId,
+        content: body.message.trim(),
+        visibility: isInternal ? 'internal' : 'client',
+      },
+      user
+    );
 
     return NextResponse.json({ success: true, comment });
   } catch (error: any) {
     if (error?.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 });
+    }
+    if (error?.message?.includes('FORBIDDEN')) {
+      return NextResponse.json({ error: 'Accesso negato: non sei autorizzato a commentare questa richiesta' }, { status: 403 });
     }
     console.error('Error adding request comment:', error);
     return NextResponse.json(

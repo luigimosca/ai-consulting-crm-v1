@@ -18,11 +18,14 @@ export async function GET(
     const priority = searchParams.get('priority') || undefined;
     const q = searchParams.get('q') || undefined;
 
-    const data = await listProjectClientRequests(id, { status, category, priority, q });
+    const data = await listProjectClientRequests(id, { status, category, priority, q }, user);
     return NextResponse.json({ success: true, ...data });
   } catch (error: any) {
     if (error?.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 });
+    }
+    if (error?.message?.includes('FORBIDDEN')) {
+      return NextResponse.json({ error: 'Accesso negato: non sei autorizzato per questo progetto' }, { status: 403 });
     }
     return NextResponse.json({ error: error?.message || 'Errore recupero richieste materiali cliente' }, { status: 500 });
   }
@@ -41,27 +44,33 @@ export async function POST(
       return NextResponse.json({ error: 'Il titolo della richiesta è obbligatorio' }, { status: 400 });
     }
 
-    const created = await createClientRequest({
-      projectId: id,
-      orderId: body.orderId,
-      companyId: body.companyId,
-      title: body.title,
-      description: body.description,
-      category: body.category,
-      priority: body.priority,
-      dueDate: body.dueDate,
-      clientVisible: body.clientVisible !== false,
-      blocksTaskCompletion: body.blocksTaskCompletion !== false,
-      requestedByUserId: user.userId,
-      assignedToUserId: body.assignedToUserId,
-      items: body.items,
-      linkedTaskIds: body.linkedTaskIds,
-    });
+    const created = await createClientRequest(
+      {
+        projectId: id,
+        orderId: body.orderId,
+        companyId: body.companyId,
+        title: body.title,
+        description: body.description,
+        category: body.category,
+        priority: body.priority,
+        dueDate: body.dueDate,
+        clientVisible: body.clientVisible !== false,
+        blocksTaskCompletion: body.blocksTaskCompletion !== false,
+        requestedByUserId: user.userId,
+        assignedToUserId: body.assignedToUserId,
+        items: body.items,
+        linkedTaskIds: body.linkedTaskIds,
+      },
+      user
+    );
 
     return NextResponse.json({ success: true, request: created }, { status: 201 });
   } catch (error: any) {
     if (error?.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 });
+    }
+    if (error?.message?.includes('FORBIDDEN')) {
+      return NextResponse.json({ error: 'Accesso negato: non sei autorizzato a creare richieste in questo progetto' }, { status: 403 });
     }
     return NextResponse.json({ error: error?.message || 'Errore creazione richiesta cliente' }, { status: 400 });
   }

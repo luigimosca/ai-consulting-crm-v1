@@ -20,12 +20,15 @@ export async function POST(
       );
     }
 
-    const result = await rejectClientRequest(id, body.reason.trim(), user.userId);
+    const result = await rejectClientRequest(id, body.reason.trim(), user.userId, user);
 
     return NextResponse.json({ success: true, request: result });
   } catch (error: any) {
-    if (error?.message === 'UNAUTHORIZED' || error?.message === 'FORBIDDEN') {
-      return NextResponse.json({ error: 'Non autorizzato: accesso riservato al team interno' }, { status: 403 });
+    if (error?.message === 'UNAUTHORIZED') {
+      return NextResponse.json({ error: 'Non autenticato' }, { status: 401 });
+    }
+    if (error?.message?.includes('FORBIDDEN')) {
+      return NextResponse.json({ error: 'Accesso negato: non sei autorizzato a rifiutare richieste per questo progetto' }, { status: 403 });
     }
     console.error('Error rejecting client request:', error);
     return NextResponse.json(

@@ -638,8 +638,8 @@ export function computeRequestOverallStatus(
   currentStatus: ClientRequestStatus,
   items: Array<{ required: boolean; status: ClientRequestItemStatus }>
 ): ClientRequestStatus {
-  // Se lo stato è già approved, rejected o cancelled da un'azione esplicita dell'utente, mantienilo
-  if (['approved', 'rejected', 'cancelled'].includes(currentStatus)) {
+  // Se lo stato è già approved o cancelled da un'azione esplicita finale, mantienilo
+  if (['approved', 'cancelled'].includes(currentStatus)) {
     return currentStatus;
   }
 

@@ -1,6 +1,6 @@
 /**
  * Comprehensive Test Suite: Raccolta Materiali, Informazioni e Accessi del Cliente (Client Requests)
- * Covers all 20 test scenarios specified in the requirements.
+ * Includes granular project/record-level authorization tests, task unblocking invariants, and lifecycle edge cases.
  */
 
 import {
@@ -9,6 +9,8 @@ import {
   projects,
   companies,
   tasks,
+  taskAssignments,
+  taskDependencies,
   documents,
   users,
   clientRequests,
@@ -35,7 +37,8 @@ import {
   getClientRequestById,
   getDashboardClientRequestsSummary,
 } from '../apps/web/src/lib/client-requests-service';
-import { isTaskBlockedByClient } from '../apps/web/src/lib/task-graph';
+import { isTaskBlockedByClient, isTaskBlocked } from '../apps/web/src/lib/task-graph';
+import { checkUserProjectAccess, canUserAccessClientRequest, canUserAccessDocument } from '../apps/web/src/lib/auth';
 
 let totalPassed = 0;
 let totalFailed = 0;
@@ -52,7 +55,7 @@ function assert(condition: boolean, testName: string, failureDetails?: string) {
 
 async function runClientRequestsTestSuite() {
   console.log('\n========================================================================');
-  console.log('🚀 INIZIO TEST SUITE: RACCOLTA MATERIALI & ACCESSI CLIENTE (20 SCENARI)');
+  console.log('🚀 INIZIO TEST SUITE: RACCOLTA MATERIALI & ACCESSI CLIENTE (24 SCENARI)');
   console.log('========================================================================\n');
 
   initDatabase();
@@ -80,7 +83,7 @@ async function runClientRequestsTestSuite() {
         id: testClientId,
         name: 'Cliente JammJa Test',
         email: `cli_${timestamp}@test.local`,
-        role: 'client',
+        role: 'operator', // operator/client
         passwordHash: 'dummy',
         createdAt: nowIso,
       },
@@ -174,6 +177,15 @@ async function runClientRequestsTestSuite() {
         updatedAt: nowIso,
       },
     ]);
+
+    // Assign testClientId to taskDesignId so testClientId is authorized on testProjectId
+    await db.insert(taskAssignments).values({
+      id: `ta_cli_${timestamp}`,
+      taskId: taskDesignId,
+      userId: testClientId,
+      role: 'contributor',
+      assignedAt: nowIso,
+    });
   } catch (err: any) {
     console.error('Error inserting test tasks:', err);
   }
@@ -262,7 +274,7 @@ async function runClientRequestsTestSuite() {
 
   try {
     // Fill only payoff (optional)
-    const updatedPayoff = await updateClientRequestItem({
+    await updateClientRequestItem({
       itemId: payoffItem.id,
       valueText: 'JammJa - Il gusto autentico dello street food',
       status: 'received',
@@ -280,7 +292,7 @@ async function runClientRequestsTestSuite() {
 
   console.log('\n--- SCENARIO 4: Collegamento Documento Esistente senza Duplicazione File ---');
   try {
-    const updatedFileItem = await updateClientRequestItem({
+    await updateClientRequestItem({
       itemId: logoItem.id,
       documentId: testDocId,
       status: 'received',
@@ -299,7 +311,7 @@ async function runClientRequestsTestSuite() {
 
   console.log('\n--- SCENARIO 5: Risposta Testuale a Item di Tipo Text ---');
   try {
-    const updatedPayoffItem = await updateClientRequestItem({
+    await updateClientRequestItem({
       itemId: payoffItem.id,
       valueText: 'JammJa - Tradizione e Innovazione Partenopea',
       status: 'received',
@@ -334,7 +346,7 @@ async function runClientRequestsTestSuite() {
     assert(isBlockedBefore, 'Scenario 7a: Prima dell\'approvazione, il task collegato risulta bloccato dalla richiesta.');
 
     // Approve request
-    const approvedRes = await approveClientRequest(req1.id, testAdminId, 'Logo e testi verificati e conformi.');
+    await approveClientRequest(req1.id, testAdminId, 'Logo e testi verificati e conformi.');
     const fullApprovedReq = await getClientRequestById(req1.id);
 
     const isBlockedAfter = isTaskBlockedByClient(taskDesignId);
@@ -375,7 +387,7 @@ async function runClientRequestsTestSuite() {
       ],
     });
 
-    const rejectedRes = await rejectClientRequest(
+    await rejectClientRequest(
       req2.id,
       'L\'invito all\'account Google Analytics risulta ancora in stato Invito Pendente non confermato dal proprietario.',
       testAdminId
@@ -396,7 +408,7 @@ async function runClientRequestsTestSuite() {
     let emptyRejectFailed = false;
     try {
       await rejectClientRequest(req2.id, '   ', testAdminId);
-    } catch (err: any) {
+    } catch {
       emptyRejectFailed = true;
     }
     assert(emptyRejectFailed, 'Scenario 9: Rifiuto con motivo vuoto bloccato con errore obbligatorio.');
@@ -527,7 +539,7 @@ async function runClientRequestsTestSuite() {
     const idempotencyKey = `idemp_${testProjGenId}_${timestamp}`;
 
     // First generation
-    const genResult1 = await generateClientRequestsFromTemplate({
+    await generateClientRequestsFromTemplate({
       projectId: testProjGenId,
       templateCode: 'ONBOARDING_WEBSITE_MARKETING',
       preview: false,
@@ -590,14 +602,6 @@ async function runClientRequestsTestSuite() {
       !createdLabels.some((l: string) => l.includes('Palette colori')) &&
       !createdLabels.some((l: string) => l.includes('Font e Manuale'));
 
-    if (!cond) {
-      console.log('Scenario 16 debug:', {
-        totalRequestsGenerated: genResultExcl.totalRequestsGenerated,
-        itemsLength: brandReq?.items?.length,
-        createdLabels,
-      });
-    }
-
     assert(
       cond,
       'Scenario 16: Esclusione selettiva di gruppi e item specifici applicata con successo.'
@@ -621,7 +625,6 @@ async function runClientRequestsTestSuite() {
     for (const tc of testCases) {
       const res = validateNoSensitiveCredentials(tc.text);
       if (res.isValid !== tc.expectValid) {
-        console.error(`Mismatch for: "${tc.text}" -> got isValid=${res.isValid}, expected=${tc.expectValid}`);
         allCorrect = false;
       }
     }
@@ -633,7 +636,7 @@ async function runClientRequestsTestSuite() {
 
   console.log('\n--- SCENARIO 18: Gestione Sicura degli Accessi Strutturati ---');
   try {
-    const accessItem = await updateClientRequestItem({
+    await updateClientRequestItem({
       itemId: req2.items[0].id,
       accessConfig: {
         accountService: 'Google Tag Manager',
@@ -660,7 +663,6 @@ async function runClientRequestsTestSuite() {
 
   console.log('\n--- SCENARIO 19: Note Interne vs Commenti Visibili al Cliente ---');
   try {
-    // Admin creates internal note
     const internalNote = await addRequestComment({
       requestId: req1.id,
       authorUserId: testAdminId,
@@ -668,7 +670,6 @@ async function runClientRequestsTestSuite() {
       visibility: 'internal',
     });
 
-    // Client creates public comment
     const publicComment = await addRequestComment({
       requestId: req1.id,
       authorUserId: testClientId,
@@ -707,6 +708,291 @@ async function runClientRequestsTestSuite() {
     );
   } catch (err: any) {
     assert(false, 'Scenario 20: Fallito', err.message);
+  }
+
+  // --------------------------------------------------------------------------
+  // SCENARIO 21: AUTORIZZAZIONE GRANULARE PROGETTO/RECORD (OPERATORE A VS B)
+  // --------------------------------------------------------------------------
+  console.log('\n--- SCENARIO 21: Autorizzazione Granulare a Livello di Record/Progetto (403 Forbidden) ---');
+  try {
+    const opA_Id = `usr_op_A_${timestamp}`;
+    const opB_Id = `usr_op_B_${timestamp}`;
+    const projA_Id = `prj_A_${timestamp}`;
+    const projB_Id = `prj_B_${timestamp}`;
+    const compA_Id = `comp_A_${timestamp}`;
+    const compB_Id = `comp_B_${timestamp}`;
+
+    // 1. Inserisci due operatori distinti
+    await db.insert(users).values([
+      { id: opA_Id, name: 'Operatore Progetto A', email: `op_a_${timestamp}@agency.local`, role: 'operator', passwordHash: 'x', createdAt: nowIso },
+      { id: opB_Id, name: 'Operatore Progetto B', email: `op_b_${timestamp}@agency.local`, role: 'operator', passwordHash: 'x', createdAt: nowIso },
+    ]);
+
+    await db.insert(companies).values([
+      { id: compA_Id, name: 'Azienda Cliente Alfa', sector: 'ecommerce', createdAt: nowIso, updatedAt: nowIso },
+      { id: compB_Id, name: 'Azienda Cliente Beta', sector: 'local_services', createdAt: nowIso, updatedAt: nowIso },
+    ]);
+
+    // 2. Inserisci due progetti con manager distinti (Progetto A assegnato a Op A, Progetto B assegnato a Op B)
+    await db.insert(projects).values([
+      { id: projA_Id, companyId: compA_Id, code: `PRJ-A-${timestamp.toString().slice(-4)}`, title: 'Progetto Alfa', projectType: 'client', status: 'in_corso', managerId: opA_Id, createdBy: opA_Id, createdAt: nowIso, updatedAt: nowIso },
+      { id: projB_Id, companyId: compB_Id, code: `PRJ-B-${timestamp.toString().slice(-4)}`, title: 'Progetto Beta', projectType: 'client', status: 'in_corso', managerId: opB_Id, createdBy: opB_Id, createdAt: nowIso, updatedAt: nowIso },
+    ]);
+
+    // 3. Crea una richiesta su Progetto B
+    const reqB = await createClientRequest({
+      projectId: projB_Id,
+      title: 'Materiali Riservati Progetto B',
+      category: 'brand',
+      requestedByUserId: opB_Id,
+      items: [{ label: 'Documento Strategia Beta', itemType: 'file', required: true }],
+    });
+
+    const docB_Id = `doc_beta_${timestamp}`;
+    await db.insert(documents).values({
+      id: docB_Id,
+      originalName: 'strategia_beta_riservata.pdf',
+      fileName: 'strategia_beta_riservata.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 88000,
+      fileSize: 88000,
+      storageKey: `key_doc_beta_${timestamp}`,
+      storageProvider: 'local',
+      entityType: 'client_request',
+      entityId: reqB.id,
+      uploadedBy: opB_Id,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    });
+
+    const userOpA = { userId: opA_Id, role: 'operator' };
+    const userOpB = { userId: opB_Id, role: 'operator' };
+    const userAdmin = { userId: testAdminId, role: 'admin' };
+
+    // Test a) Operatore A tenta di leggere la lista richieste del Progetto B
+    let listB_blocked = false;
+    try {
+      await listProjectClientRequests(projB_Id, {}, userOpA);
+    } catch (err: any) {
+      if (err.message.includes('FORBIDDEN')) listB_blocked = true;
+    }
+    assert(listB_blocked, 'Scenario 21a: Operatore A riceve 403 Forbidden nel listare le richieste del Progetto B.');
+
+    // Test b) Operatore A tenta di leggere direttamente la richiesta B
+    let getB_blocked = false;
+    try {
+      await getClientRequestById(reqB.id, userOpA);
+    } catch (err: any) {
+      if (err.message.includes('FORBIDDEN')) getB_blocked = true;
+    }
+    assert(getB_blocked, 'Scenario 21b: Operatore A riceve 403 Forbidden nel leggere la richiesta del Progetto B.');
+
+    // Test c) Operatore A tenta di modificare un item della richiesta B
+    let updateItemB_blocked = false;
+    try {
+      await updateClientRequestItem({
+        itemId: reqB.items[0].id,
+        valueText: 'Modifica non autorizzata da Op A',
+        performedByUserId: opA_Id,
+      }, userOpA);
+    } catch (err: any) {
+      if (err.message.includes('FORBIDDEN')) updateItemB_blocked = true;
+    }
+    assert(updateItemB_blocked, 'Scenario 21c: Operatore A riceve 403 Forbidden nel modificare item della richiesta B.');
+
+    // Test d) Operatore A tenta di approvare la richiesta B
+    let approveB_blocked = false;
+    try {
+      await approveClientRequest(reqB.id, opA_Id, 'Approvazione non autorizzata', userOpA);
+    } catch (err: any) {
+      if (err.message.includes('FORBIDDEN')) approveB_blocked = true;
+    }
+    assert(approveB_blocked, 'Scenario 21d: Operatore A riceve 403 Forbidden nell\'approvare la richiesta B.');
+
+    // Test e) Operatore A tenta di rifiutare la richiesta B
+    let rejectB_blocked = false;
+    try {
+      await rejectClientRequest(reqB.id, 'Rifiuto non autorizzato', opA_Id, userOpA);
+    } catch (err: any) {
+      if (err.message.includes('FORBIDDEN')) rejectB_blocked = true;
+    }
+    assert(rejectB_blocked, 'Scenario 21e: Operatore A riceve 403 Forbidden nel rifiutare la richiesta B.');
+
+    // Test f) Operatore A tenta di scaricare il documento collegato alla richiesta B
+    const docB_Access_OpA = canUserAccessDocument(userOpA, docB_Id);
+    assert(!docB_Access_OpA, 'Scenario 21f: Operatore A riceve 403 Forbidden nel tentativo di scaricare il documento B.');
+
+    // Test g) Operatore B autorizzato accede regolarmente a Progetto B e Documento B
+    const docB_Access_OpB = canUserAccessDocument(userOpB, docB_Id);
+    const reqB_Access_OpB = !!(await getClientRequestById(reqB.id, userOpB));
+    assert(docB_Access_OpB && reqB_Access_OpB, 'Scenario 21g: Operatore B autorizzato legge e gestisce regolarmente la richiesta B e il documento B.');
+
+    // Test h) Admin super-user accede a entrambi i progetti
+    const docB_Access_Admin = canUserAccessDocument(userAdmin, docB_Id);
+    const reqB_Access_Admin = !!(await getClientRequestById(reqB.id, userAdmin));
+    assert(docB_Access_Admin && reqB_Access_Admin, 'Scenario 21h: Admin super-user ha accesso confermato a tutti i progetti e documenti.');
+  } catch (err: any) {
+    assert(false, 'Scenario 21: Fallito', err.message);
+  }
+
+  // --------------------------------------------------------------------------
+  // SCENARIO 22: CONSERVAZIONE DELLO STATO OPERATIVO (in_corso / in_revisione)
+  // --------------------------------------------------------------------------
+  console.log('\n--- SCENARIO 22: Preservazione degli Stati Operativi (in_corso e in_revisione) ---');
+  try {
+    const tskInCorso = `tsk_inc_${timestamp}`;
+    const tskInRev = `tsk_rev_${timestamp}`;
+
+    await db.insert(tasks).values([
+      { id: tskInCorso, projectId: testProjectId, title: 'Task in_corso Test', status: 'in_corso', priority: 'alta', createdBy: testAdminId, createdAt: nowIso, updatedAt: nowIso },
+      { id: tskInRev, projectId: testProjectId, title: 'Task in_revisione Test', status: 'in_revisione', priority: 'media', createdBy: testAdminId, createdAt: nowIso, updatedAt: nowIso },
+    ]);
+
+    const reqStatePreserve = await createClientRequest({
+      projectId: testProjectId,
+      title: 'Richiesta Materiali per Task in Corso e Revisione',
+      category: 'brand',
+      blocksTaskCompletion: true,
+      linkedTaskIds: [
+        { taskId: tskInCorso, relationType: 'blocks' },
+        { taskId: tskInRev, relationType: 'blocks' },
+      ],
+      requestedByUserId: testAdminId,
+      items: [{ label: 'Documento di Test', itemType: 'file', required: true }],
+    });
+
+    assert(
+      isTaskBlockedByClient(tskInCorso) && isTaskBlockedByClient(tskInRev),
+      'Scenario 22a: Task in_corso e in_revisione risultano bloccati prima dell\'approvazione.'
+    );
+
+    // Approviamo la richiesta
+    await approveClientRequest(reqStatePreserve.id, testAdminId, 'Approvato');
+
+    const statusInCorsoAfter = (await db.select().from(tasks).where(eq(tasks.id, tskInCorso)).get())?.status;
+    const statusInRevAfter = (await db.select().from(tasks).where(eq(tasks.id, tskInRev)).get())?.status;
+
+    assert(
+      statusInCorsoAfter === 'in_corso' &&
+        statusInRevAfter === 'in_revisione' &&
+        !isTaskBlockedByClient(tskInCorso) &&
+        !isTaskBlockedByClient(tskInRev),
+      `Scenario 22b: Task "in_corso" resta "in_corso" (${statusInCorsoAfter}) e task "in_revisione" resta "in_revisione" (${statusInRevAfter}) con blocco cliente rimosso.`
+    );
+  } catch (err: any) {
+    assert(false, 'Scenario 22: Fallito', err.message);
+  }
+
+  // --------------------------------------------------------------------------
+  // SCENARIO 23: CICLO RIFIUTO -> NUOVA CONSEGNA -> NUOVA APPROVAZIONE
+  // --------------------------------------------------------------------------
+  console.log('\n--- SCENARIO 23: Ciclo Rifiuto -> Nuova Consegna -> Nuova Approvazione ---');
+  try {
+    const reqCycle = await createClientRequest({
+      projectId: testProjectId,
+      title: 'Accessi DNS e Hosting',
+      category: 'accesses',
+      priority: 'high',
+      requestedByUserId: testAdminId,
+      items: [{ label: 'Puntamenti DNS Record A', itemType: 'text', required: true }],
+    });
+
+    // 1. Prima consegna parziale/errata
+    await updateClientRequestItem({
+      itemId: reqCycle.items[0].id,
+      valueText: 'IP 192.168.1.1 (errato)',
+      status: 'received',
+      performedByUserId: testClientId,
+    });
+
+    const reqBeforeReject = await getClientRequestById(reqCycle.id);
+    assert(reqBeforeReject?.status === 'received', 'Scenario 23a: Prima consegna registrata in stato received.');
+
+    // 2. Rifiuto con motivazione
+    await rejectClientRequest(reqCycle.id, 'L\'indirizzo IP fornito è un IP locale privato non raggiungibile.', testAdminId);
+    const reqAfterReject = await getClientRequestById(reqCycle.id);
+    assert(
+      reqAfterReject?.status === 'rejected' && reqAfterReject.rejectionReason?.includes('IP locale'),
+      'Scenario 23b: Richiesta rifiutata correttamente con motivazione salvata.'
+    );
+
+    // 3. Nuova consegna corretta da parte del cliente
+    await updateClientRequestItem({
+      itemId: reqCycle.items[0].id,
+      valueText: 'IP Pubblico 77.83.143.220 corretto',
+      status: 'received',
+      performedByUserId: testClientId,
+    });
+
+    const reqAfterResubmit = await getClientRequestById(reqCycle.id);
+    assert(
+      reqAfterResubmit?.status === 'received',
+      `Scenario 23c: Nuova consegna transita automaticamente lo stato della richiesta a "received" (reale: ${reqAfterResubmit?.status}).`
+    );
+
+    // 4. Seconda approvazione da parte del PM
+    await approveClientRequest(reqCycle.id, testAdminId, 'Nuovo IP pubblico verificato con successo.');
+    const reqFinal = await getClientRequestById(reqCycle.id);
+    assert(
+      reqFinal?.status === 'approved' && reqFinal.rejectionReason === null,
+      'Scenario 23d: Seconda approvazione completata con successo e motivazione di rifiuto azzerata.'
+    );
+  } catch (err: any) {
+    assert(false, 'Scenario 23: Fallito', err.message);
+  }
+
+  // --------------------------------------------------------------------------
+  // SCENARIO 24: TASK BLOCCATO PER DIPENDENZE NON VIENE SBLOCCATO PER ERRORE
+  // --------------------------------------------------------------------------
+  console.log('\n--- SCENARIO 24: Task Bloccato per Dipendenze Predecessori non viene sbloccato per errore ---');
+  try {
+    const tskPredId = `tsk_pred_${timestamp}`;
+    const tskSuccId = `tsk_succ_${timestamp}`;
+
+    // Inserisci due task: Successore dipende da Predecessore non ancora completato
+    await db.insert(tasks).values([
+      { id: tskPredId, projectId: testProjectId, title: 'Task Predecessore (In corso)', status: 'in_corso', priority: 'alta', createdBy: testAdminId, createdAt: nowIso, updatedAt: nowIso },
+      { id: tskSuccId, projectId: testProjectId, title: 'Task Successore (Bloccato da Predecessore)', status: 'bloccato', priority: 'alta', createdBy: testAdminId, createdAt: nowIso, updatedAt: nowIso },
+    ]);
+
+    // Inserisci dipendenza Gantt
+    await db.insert(taskDependencies).values({
+      id: `dep_${timestamp}`,
+      predecessorTaskId: tskPredId,
+      successorTaskId: tskSuccId,
+      dependencyType: 'finish_to_start',
+      createdAt: nowIso,
+    });
+
+    // Inserisci una richiesta cliente collegata al Successore
+    const reqDepTest = await createClientRequest({
+      projectId: testProjectId,
+      title: 'Materiale Grafico per Task Successore',
+      category: 'brand',
+      blocksTaskCompletion: true,
+      linkedTaskIds: [{ taskId: tskSuccId, relationType: 'blocks' }],
+      requestedByUserId: testAdminId,
+      items: [{ label: 'Icone Brand', itemType: 'file', required: true }],
+    });
+
+    // Verifica che prima dell'approvazione il task è bloccato sia da cliente che da predecessore
+    assert(
+      isTaskBlocked(tskSuccId) === true && isTaskBlockedByClient(tskSuccId) === true,
+      'Scenario 24a: Task successore inizialmente bloccato sia da predecessore Gantt che da richiesta cliente.'
+    );
+
+    // Approviamo la richiesta cliente
+    await approveClientRequest(reqDepTest.id, testAdminId, 'Icone approvate.');
+
+    // Verifica lo stato del task successore: NON deve essere sbloccato a 'da_fare', deve rimanere 'bloccato' perché il predecessore non è completato!
+    const succTaskAfter = await db.select().from(tasks).where(eq(tasks.id, tskSuccId)).get();
+
+    assert(
+      succTaskAfter?.status === 'bloccato' && isTaskBlocked(tskSuccId) === true,
+      `Scenario 24b: Task con dipendenza incompiuta rimane correttamente nello stato "bloccato" (reale: ${succTaskAfter?.status}) e non viene sbloccato per errore.`
+    );
+  } catch (err: any) {
+    assert(false, 'Scenario 24: Fallito', err.message);
   }
 
   console.log('\n========================================================================');

@@ -13,6 +13,8 @@ import {
   computeRequestOverallStatus,
 } from '@ai-crm/ai';
 import { logActivity } from './activity-logger';
+import { checkUserProjectAccess, canUserAccessClientRequest } from './auth';
+import { isTaskBlocked } from './task-graph';
 
 export interface ClientRequestItemData {
   id: string;
@@ -123,8 +125,13 @@ export interface ProjectClientRequestsSummary {
  */
 export async function listProjectClientRequests(
   projectId: string,
-  filters?: { status?: string; category?: string; priority?: string; q?: string }
+  filters?: { status?: string; category?: string; priority?: string; q?: string },
+  user?: { userId: string; role: string }
 ): Promise<ProjectClientRequestsSummary> {
+  if (user && !checkUserProjectAccess(user, projectId)) {
+    throw new Error('FORBIDDEN');
+  }
+
   const allRequests = db
     .select({
       req: clientRequests,
@@ -248,16 +255,22 @@ export async function listProjectClientRequests(
       taskPriority: l.tPriority,
     }));
 
-    const parsedComments: RequestCommentData[] = reqComments.map((c) => ({
-      id: c.comment.id,
-      requestId: c.comment.requestId,
-      authorUserId: c.comment.authorUserId,
-      authorName: c.authorName || 'Utente',
-      authorRole: c.authorRole || 'operator',
-      content: c.comment.content,
-      visibility: c.comment.visibility as 'internal' | 'client',
-      createdAt: c.comment.createdAt,
-    }));
+    const parsedComments: RequestCommentData[] = reqComments
+      .filter((c) => {
+        if (!user) return true;
+        if (user.role === 'admin' || user.role === 'operator') return true;
+        return c.comment.visibility === 'client';
+      })
+      .map((c) => ({
+        id: c.comment.id,
+        requestId: c.comment.requestId,
+        authorUserId: c.comment.authorUserId,
+        authorName: c.authorName || 'Utente',
+        authorRole: c.authorRole || 'operator',
+        content: c.comment.content,
+        visibility: c.comment.visibility as 'internal' | 'client',
+        createdAt: c.comment.createdAt,
+      }));
 
     const totalItems = parsedItems.length;
     const requiredItems = parsedItems.filter((i) => i.required).length;
@@ -358,7 +371,10 @@ export async function listProjectClientRequests(
 /**
  * Recupera i dettagli completi di una singola richiesta cliente
  */
-export async function getClientRequestById(requestId: string): Promise<ClientRequestDetail | null> {
+export async function getClientRequestById(
+  requestId: string,
+  user?: { userId: string; role: string }
+): Promise<ClientRequestDetail | null> {
   const reqRow = db
     .select({
       req: clientRequests,
@@ -372,6 +388,10 @@ export async function getClientRequestById(requestId: string): Promise<ClientReq
     .get();
 
   if (!reqRow) return null;
+
+  if (user && !canUserAccessClientRequest(user, requestId)) {
+    throw new Error('FORBIDDEN');
+  }
 
   const rawReq = reqRow.req;
 
@@ -475,16 +495,22 @@ export async function getClientRequestById(requestId: string): Promise<ClientReq
     taskPriority: l.tPriority,
   }));
 
-  const parsedComments: RequestCommentData[] = reqComments.map((c) => ({
-    id: c.comment.id,
-    requestId: c.comment.requestId,
-    authorUserId: c.comment.authorUserId,
-    authorName: c.authorName || 'Utente',
-    authorRole: c.authorRole || 'operator',
-    content: c.comment.content,
-    visibility: c.comment.visibility as 'internal' | 'client',
-    createdAt: c.comment.createdAt,
-  }));
+  const parsedComments: RequestCommentData[] = reqComments
+    .filter((c) => {
+      if (!user) return true;
+      if (user.role === 'admin' || user.role === 'operator') return true;
+      return c.comment.visibility === 'client';
+    })
+    .map((c) => ({
+      id: c.comment.id,
+      requestId: c.comment.requestId,
+      authorUserId: c.comment.authorUserId,
+      authorName: c.authorName || 'Utente',
+      authorRole: c.authorRole || 'operator',
+      content: c.comment.content,
+      visibility: c.comment.visibility as 'internal' | 'client',
+      createdAt: c.comment.createdAt,
+    }));
 
   const totalItems = parsedItems.length;
   const requiredItems = parsedItems.filter((i) => i.required).length;
@@ -576,7 +602,11 @@ export async function createClientRequest(params: {
     taskId: string;
     relationType?: 'blocks' | 'supports';
   }>;
-}): Promise<ClientRequestDetail> {
+}, user?: { userId: string; role: string }): Promise<ClientRequestDetail> {
+  if (user && !checkUserProjectAccess(user, params.projectId)) {
+    throw new Error('FORBIDDEN');
+  }
+
   const cleanTitle = (params.title || '').trim();
   if (!cleanTitle) {
     throw new Error('Il titolo della richiesta è obbligatorio.');
@@ -695,8 +725,14 @@ export async function updateClientRequest(
     status?: ClientRequestStatus;
     rejectionReason?: string | null;
   },
-  performedByUserId: string
+  performedByUserId: string,
+  user?: { userId: string; role: string }
 ): Promise<ClientRequestDetail> {
+  const actor = user || { userId: performedByUserId, role: 'operator' };
+  if (!canUserAccessClientRequest(actor, requestId)) {
+    throw new Error('FORBIDDEN');
+  }
+
   if (params.title) {
     const sec = validateNoSensitiveCredentials(params.title);
     if (!sec.isValid) throw new Error(sec.error);
@@ -740,16 +776,27 @@ export async function updateClientRequest(
 /**
  * Aggiorna o compila una singola voce di una richiesta cliente (es. testo, file caricato, accesso confermato)
  */
-export async function updateClientRequestItem(params: {
-  itemId: string;
-  valueText?: string | null;
-  valueUrl?: string | null;
-  documentId?: string | null;
-  accessConfig?: AccessConfirmationConfig | null;
-  notes?: string | null;
-  status?: ClientRequestItemStatus;
-  performedByUserId: string;
-}): Promise<ClientRequestDetail> {
+export async function updateClientRequestItem(
+  params: {
+    itemId: string;
+    valueText?: string | null;
+    valueUrl?: string | null;
+    documentId?: string | null;
+    accessConfig?: AccessConfirmationConfig | null;
+    notes?: string | null;
+    status?: ClientRequestItemStatus;
+    performedByUserId: string;
+  },
+  user?: { userId: string; role: string }
+): Promise<ClientRequestDetail> {
+  const item = db.select().from(clientRequestItems).where(eq(clientRequestItems.id, params.itemId)).get();
+  if (!item) throw new Error('Voce richiesta non trovata');
+
+  const actor = user || { userId: params.performedByUserId, role: 'operator' };
+  if (!canUserAccessClientRequest(actor, item.requestId)) {
+    throw new Error('FORBIDDEN');
+  }
+
   if (params.valueText) {
     const sec = validateNoSensitiveCredentials(params.valueText);
     if (!sec.isValid) throw new Error(sec.error);
@@ -758,9 +805,6 @@ export async function updateClientRequestItem(params: {
     const sec = validateNoSensitiveCredentials(params.notes);
     if (!sec.isValid) throw new Error(sec.error);
   }
-
-  const item = db.select().from(clientRequestItems).where(eq(clientRequestItems.id, params.itemId)).get();
-  if (!item) throw new Error('Voce richiesta non trovata');
 
   const now = new Date().toISOString();
   const updatePayload: any = {};
@@ -830,10 +874,16 @@ export async function updateClientRequestItem(params: {
 export async function approveClientRequest(
   requestId: string,
   performedByUserId: string,
-  optionalComment?: string
+  optionalComment?: string,
+  user?: { userId: string; role: string }
 ): Promise<ClientRequestDetail> {
   const req = db.select().from(clientRequests).where(eq(clientRequests.id, requestId)).get();
   if (!req) throw new Error('Richiesta non trovata');
+
+  const actor = user || { userId: performedByUserId, role: 'operator' };
+  if (actor.role !== 'admin' && !canUserAccessClientRequest(actor, requestId)) {
+    throw new Error('FORBIDDEN');
+  }
 
   const now = new Date().toISOString();
 
@@ -884,10 +934,13 @@ export async function approveClientRequest(
       )
       .all();
 
-    // Se non rimangono altri blocchi, il task torna lavorabile! (Non completato, ma da_fare o in_corso)
+    // Se non rimangono altri blocchi da richieste cliente, verifica se il task è bloccato da dipendenze o da altro
     if (otherBlockingLinks.length === 0) {
       const currentTask = db.select().from(tasks).where(eq(tasks.id, link.taskId)).get();
-      if (currentTask && currentTask.status === 'bloccato') {
+      const isDependencyBlocked = isTaskBlocked(link.taskId);
+
+      // Sblocca il task a 'da_fare' SOLO se era esplicitamente 'bloccato' E non è bloccato da dipendenze predecessori
+      if (currentTask && currentTask.status === 'bloccato' && !isDependencyBlocked) {
         db.update(tasks)
           .set({
             status: 'da_fare',
@@ -925,7 +978,8 @@ export async function approveClientRequest(
 export async function rejectClientRequest(
   requestId: string,
   rejectionReason: string,
-  performedByUserId: string
+  performedByUserId: string,
+  user?: { userId: string; role: string }
 ): Promise<ClientRequestDetail> {
   const cleanReason = (rejectionReason || '').trim();
   if (!cleanReason || cleanReason.length < 3) {
@@ -937,6 +991,11 @@ export async function rejectClientRequest(
 
   const req = db.select().from(clientRequests).where(eq(clientRequests.id, requestId)).get();
   if (!req) throw new Error('Richiesta non trovata');
+
+  const actor = user || { userId: performedByUserId, role: 'operator' };
+  if (actor.role !== 'admin' && !canUserAccessClientRequest(actor, requestId)) {
+    throw new Error('FORBIDDEN');
+  }
 
   const now = new Date().toISOString();
 
@@ -964,12 +1023,15 @@ export async function rejectClientRequest(
 /**
  * Aggiunge un commento a una richiesta cliente
  */
-export async function addRequestComment(params: {
-  requestId: string;
-  authorUserId: string;
-  content: string;
-  visibility?: 'internal' | 'client';
-}): Promise<RequestCommentData> {
+export async function addRequestComment(
+  params: {
+    requestId: string;
+    authorUserId: string;
+    content: string;
+    visibility?: 'internal' | 'client';
+  },
+  user?: { userId: string; role: string }
+): Promise<RequestCommentData> {
   const cleanContent = (params.content || '').trim();
   if (!cleanContent) throw new Error('Il commento non può essere vuoto.');
 
@@ -979,7 +1041,15 @@ export async function addRequestComment(params: {
   const req = db.select().from(clientRequests).where(eq(clientRequests.id, params.requestId)).get();
   if (!req) throw new Error('Richiesta non trovata');
 
-  const user = db.select().from(users).where(eq(users.id, params.authorUserId)).get();
+  const actor = user || { userId: params.authorUserId, role: 'operator' };
+  if (!canUserAccessClientRequest(actor, params.requestId)) {
+    throw new Error('FORBIDDEN');
+  }
+  if (actor.role === 'client' && params.visibility === 'internal') {
+    throw new Error('FORBIDDEN: I clienti non possono creare commenti interni.');
+  }
+
+  const authorUser = db.select().from(users).where(eq(users.id, params.authorUserId)).get();
 
   const commentId = `comm_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const now = new Date().toISOString();
@@ -1007,8 +1077,8 @@ export async function addRequestComment(params: {
     id: commentId,
     requestId: params.requestId,
     authorUserId: params.authorUserId,
-    authorName: user?.name || 'Utente',
-    authorRole: user?.role || 'operator',
+    authorName: authorUser?.name || 'Utente',
+    authorRole: authorUser?.role || 'operator',
     content: cleanContent,
     visibility: (params.visibility || 'internal') as 'internal' | 'client',
     createdAt: now,
@@ -1019,15 +1089,18 @@ export async function addRequestComment(params: {
  * Genera automaticamente le richieste materiali da un template standard (es. Onboarding sito web e marketing)
  * Supporta dry-run anteprima, esclusione elementi/categorie, prevenzione duplicati e chiave di idempotenza.
  */
-export async function generateClientRequestsFromTemplate(params: {
-  projectId: string;
-  templateCode?: string;
-  preview?: boolean;
-  excludedGroupIds?: string[];
-  excludedItemIds?: string[];
-  idempotencyKey?: string;
-  performedByUserId: string;
-}): Promise<{
+export async function generateClientRequestsFromTemplate(
+  params: {
+    projectId: string;
+    templateCode?: string;
+    preview?: boolean;
+    excludedGroupIds?: string[];
+    excludedItemIds?: string[];
+    idempotencyKey?: string;
+    performedByUserId: string;
+  },
+  user?: { userId: string; role: string }
+): Promise<{
   success: boolean;
   preview: boolean;
   templateCode: string;
@@ -1056,6 +1129,11 @@ export async function generateClientRequestsFromTemplate(params: {
   totalTasksLinked?: number;
   duplicateWarningsCount: number;
 }> {
+  const actor = user || { userId: params.performedByUserId, role: 'operator' };
+  if (!checkUserProjectAccess(actor, params.projectId)) {
+    throw new Error('FORBIDDEN');
+  }
+
   const project = db.select().from(projects).where(eq(projects.id, params.projectId)).get();
   if (!project) throw new Error('Progetto non trovato');
 

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db, documents } from '@ai-crm/db';
 import { eq } from 'drizzle-orm';
-import { requireAuth } from '@/lib/auth';
+import { requireAuth, canUserAccessDocument } from '@/lib/auth';
 import { getStorageProvider } from '@/lib/storage';
 
 export const dynamic = 'force-dynamic';
@@ -17,6 +17,14 @@ export async function GET(
     const doc = db.select().from(documents).where(eq(documents.id, id)).get();
     if (!doc) {
       return NextResponse.json({ error: 'Documento non trovato' }, { status: 404 });
+    }
+
+    // Controllo di autorizzazione granulare sul documento / progetto / richiesta collegata
+    if (!canUserAccessDocument(user, doc)) {
+      return NextResponse.json(
+        { error: 'Accesso negato: non sei autorizzato a scaricare questo documento' },
+        { status: 403 }
+      );
     }
 
     const storageProvider = getStorageProvider();
