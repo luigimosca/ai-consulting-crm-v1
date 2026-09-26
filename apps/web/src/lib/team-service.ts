@@ -513,7 +513,15 @@ export function removeProjectMember(projectId: string, userId: string, force: bo
     };
   }
 
-  // Delete or mark inactive
+  // If force removal, unassign user from open tasks in this project
+  if (force && openTasks.length > 0) {
+    const taskIds = openTasks.map((t) => t.id);
+    db.delete(taskAssignments)
+      .where(and(eq(taskAssignments.userId, userId), inArray(taskAssignments.taskId, taskIds)))
+      .run();
+  }
+
+  // Delete project membership
   db.delete(projectMembers).where(eq(projectMembers.id, member.id)).run();
 
   return {

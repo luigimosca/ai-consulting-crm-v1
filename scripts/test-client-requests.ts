@@ -13,6 +13,7 @@ import {
   taskDependencies,
   documents,
   users,
+  projectMembers,
   clientRequests,
   clientRequestItems,
   clientRequestTaskLinks,
@@ -178,7 +179,29 @@ async function runClientRequestsTestSuite() {
       },
     ]);
 
-    // Assign testClientId to taskDesignId so testClientId is authorized on testProjectId
+    // Assign project members for testProjectId
+    await db.insert(projectMembers).values([
+      {
+        id: `pm_cli_${timestamp}`,
+        projectId: testProjectId,
+        userId: testClientId,
+        projectRole: 'contributor',
+        status: 'active',
+        joinedAt: nowIso,
+        addedBy: testAdminId,
+      },
+      {
+        id: `pm_op_${timestamp}`,
+        projectId: testProjectId,
+        userId: testOperatorId,
+        projectRole: 'editor',
+        status: 'active',
+        joinedAt: nowIso,
+        addedBy: testAdminId,
+      },
+    ]);
+
+    // Assign testClientId to taskDesignId so testClientId is assigned to taskDesignId
     await db.insert(taskAssignments).values({
       id: `ta_cli_${timestamp}`,
       taskId: taskDesignId,

@@ -133,22 +133,12 @@ export function getUserProjectRole(
     return member.projectRole as ProjectRole;
   }
 
-  // Fallback check on project record
+  // Fallback check on project record for legacy projects
   const project = db.select({ managerId: projects.managerId, createdBy: projects.createdBy }).from(projects).where(eq(projects.id, projectId)).get();
   if (!project) return null;
 
   if (project.managerId === user.userId) return 'manager';
   if (project.createdBy === user.userId) return 'editor';
-
-  // Fallback check on task assignments
-  const taskAssign = db
-    .select({ id: taskAssignments.id })
-    .from(taskAssignments)
-    .innerJoin(tasks, eq(taskAssignments.taskId, tasks.id))
-    .where(and(eq(tasks.projectId, projectId), eq(taskAssignments.userId, user.userId)))
-    .get();
-
-  if (taskAssign) return 'contributor';
 
   return null;
 }

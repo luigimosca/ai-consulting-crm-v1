@@ -13,6 +13,12 @@ import {
   CheckSquare,
   Clock,
   Info,
+  Link as LinkIcon,
+  Copy,
+  Check,
+  Sparkles,
+  KeyRound,
+  UserCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -43,11 +49,27 @@ export function ProjectTeamTab({ projectId, onMembersUpdated }: ProjectTeamTabPr
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Add Member Modal
+  // Add / Invite Member Modal
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<'select' | 'create'>('select');
+  
+  // Select existing state
   const [selectedUserId, setSelectedUserId] = useState('');
   const [selectedRole, setSelectedRole] = useState<'manager' | 'editor' | 'contributor' | 'viewer'>('contributor');
-  const [adding, setAdding] = useState(false);
+  
+  // Create / Invite new state
+  const [newName, setNewName] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newGlobalRole, setNewGlobalRole] = useState<'admin' | 'operator'>('operator');
+  const [newProjectRole, setNewProjectRole] = useState<'manager' | 'editor' | 'contributor' | 'viewer'>('contributor');
+  const [newAuthMode, setNewAuthMode] = useState<'invite' | 'password'>('invite');
+  const [newPassword, setNewPassword] = useState('');
+
+  // Generated invitation link result
+  const [createdInviteUrl, setCreatedInviteUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const [submitting, setSubmitting] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
   // Remove Member Warning Modal
@@ -64,7 +86,7 @@ export function ProjectTeamTab({ projectId, onMembersUpdated }: ProjectTeamTabPr
     try {
       const [membersRes, usersRes] = await Promise.all([
         fetch(`/api/projects/${projectId}/members?t=${Date.now()}`),
-        fetch(`/api/users?status=active`),
+        fetch(`/api/users?status=active&t=${Date.now()}`),
       ]);
 
       if (membersRes.ok) {
@@ -87,23 +109,39 @@ export function ProjectTeamTab({ projectId, onMembersUpdated }: ProjectTeamTabPr
     fetchTeamData();
   }, [projectId]);
 
+  const existingMemberUserIds = new Set(members.map((m) => m.userId));
+  const availableUsersToAdd = allUsers.filter((u) => !existingMemberUserIds.has(u.id));
+
   const handleOpenAddModal = () => {
-    const existingMemberUserIds = new Set(members.map((m) => m.userId));
     const available = allUsers.filter((u) => !existingMemberUserIds.has(u.id));
-    setSelectedUserId(available[0]?.id || '');
+    if (available.length > 0) {
+      setSelectedUserId(available[0].id);
+      setModalMode('select');
+    } else {
+      setSelectedUserId('');
+      setModalMode('create');
+    }
     setSelectedRole('contributor');
+    setNewName('');
+    setNewEmail('');
+    setNewGlobalRole('operator');
+    setNewProjectRole('contributor');
+    setNewAuthMode('invite');
+    setNewPassword('');
+    setCreatedInviteUrl(null);
+    setCopied(false);
     setAddError(null);
     setIsAddModalOpen(true);
   };
 
-  const handleAddMember = async (e: React.FormEvent) => {
+  const handleAddExistingMember = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserId) {
-      setAddError('Seleziona un utente da aggiungere');
+      setAddError('Seleziona un operatore da aggiungere');
       return;
     }
 
-    setAdding(true);
+    setSubmitting(true);
     setAddError(null);
 
     try {
@@ -119,14 +157,93 @@ export function ProjectTeamTab({ projectId, onMembersUpdated }: ProjectTeamTabPr
       }
 
       setIsAddModalOpen(false);
-      fetchTeamData();
+      await fetchTeamData();
       if (onMembersUpdated) onMembersUpdated();
-      setFeedback({ type: 'success', message: 'Membro aggiunto con successo al progetto!' });
+      setFeedback({ type: 'success', message: 'Membro aggiunto con successo al team di progetto!' });
     } catch (err: any) {
       setAddError(err.message);
     } finally {
-      setAdding(false);
+      setSubmitting(false);
     }
+  };
+
+  const handleCreateAndAssignMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim() || !newEmail.trim()) {
+      setAddError('Nome ed email sono obbligatori');
+      return;
+    }
+
+    if (newAuthMode === 'password' && (!newPassword || newPassword.trim().length < 6)) {
+      setAddError('La password temporanea deve contenere almeno 6 caratteri');
+      return;
+    }
+
+    setSubmitting(true);
+    setAddError(null);
+
+    try {
+      // 1. Create User in CRM
+      const userRes = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newName.trim(),
+          email: newEmail.trim(),
+          role: newGlobalRole,
+          createInviteToken: newAuthMode === 'invite',
+          password: newAuthMode === 'password' ? newPassword.trim() : undefined,
+        }),
+      });
+
+      const userData = await userRes.json();
+      if (!userRes.ok || !userData.success) {
+        throw new Error(userData.error || 'Errore creazione utente');
+      }
+
+      const createdUserId = userData.user.userId || userData.user.id;
+
+      // 2. Assign to this project
+      const memberRes = await fetch(`/api/projects/${projectId}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: createdUserId,
+          projectRole: newProjectRole,
+        }),
+      });
+
+      const memberData = await memberRes.json();
+      if (!memberRes.ok || !memberData.success) {
+        throw new Error(memberData.error || 'Utente creato ma errore durante l\'assegnazione al progetto');
+      }
+
+      // 3. Handle Invite Token if generated
+      if (userData.user.inviteToken) {
+        const fullUrl = `${window.location.origin}/activate?token=${userData.user.inviteToken}`;
+        setCreatedInviteUrl(fullUrl);
+      } else {
+        setIsAddModalOpen(false);
+        setFeedback({
+          type: 'success',
+          message: `Operatore ${newName} creato e assegnato al progetto con successo!`,
+        });
+      }
+
+      await fetchTeamData();
+      if (onMembersUpdated) onMembersUpdated();
+    } catch (err: any) {
+      setAddError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCopyInvite = () => {
+    if (!createdInviteUrl) return;
+    navigator.clipboard.writeText(createdInviteUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 3000);
   };
 
   const handleChangeRole = async (userId: string, newRole: 'manager' | 'editor' | 'contributor' | 'viewer') => {
@@ -189,7 +306,7 @@ export function ProjectTeamTab({ projectId, onMembersUpdated }: ProjectTeamTabPr
       setIsRemoveModalOpen(false);
       setMemberToRemove(null);
       setRemoveWarning(null);
-      fetchTeamData();
+      await fetchTeamData();
       if (onMembersUpdated) onMembersUpdated();
       setFeedback({ type: 'success', message: 'Membro rimosso dal team di progetto.' });
     } catch (err: any) {
@@ -199,24 +316,21 @@ export function ProjectTeamTab({ projectId, onMembersUpdated }: ProjectTeamTabPr
     }
   };
 
-  const existingMemberUserIds = new Set(members.map((m) => m.userId));
-  const availableUsersToAdd = allUsers.filter((u) => !existingMemberUserIds.has(u.id));
-
   const roleLabels: Record<string, { label: string; badge: string; desc: string }> = {
     manager: {
       label: 'Manager',
       badge: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
-      desc: 'Gestione team, impostazioni, approvazione richieste cliente, eliminazione task',
+      desc: 'Gestione team, approvazione richieste cliente ed eliminazione task',
     },
     editor: {
       label: 'Editor',
       badge: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
-      desc: 'Creazione e modifica task, milestone, applicazione modelli di processo',
+      desc: 'Creazione e modifica attività, milestone e modelli di processo',
     },
     contributor: {
       label: 'Contributor',
       badge: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-      desc: 'Aggiornamento dei task a lui assegnati e caricamento materiali richiesti',
+      desc: 'Aggiornamento dei task assegnati e caricamento materiali',
     },
     viewer: {
       label: 'Viewer',
@@ -235,18 +349,17 @@ export function ProjectTeamTab({ projectId, onMembersUpdated }: ProjectTeamTabPr
             <h2 className="text-lg font-bold text-white">Team di Progetto & Assegnazioni</h2>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Solo gli utenti abilitati in questo elenco possono essere selezionati come assegnatari dei task
+            Solo gli utenti abilitati in questo team possono essere selezionati come assegnatari dei task
             e accedere alle risorse di questo progetto.
           </p>
         </div>
 
         <button
           onClick={handleOpenAddModal}
-          disabled={availableUsersToAdd.length === 0}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-lg font-medium shadow-md shadow-blue-500/20 text-xs transition-all disabled:opacity-50 flex-shrink-0"
+          className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-lg font-medium shadow-md shadow-blue-500/20 text-xs transition-all flex-shrink-0 cursor-pointer"
         >
           <UserPlus className="h-4 w-4" />
-          <span>Aggiungi Membro ({availableUsersToAdd.length} disponibili)</span>
+          <span>Aggiungi o Invita Membro</span>
         </button>
       </div>
 
@@ -297,12 +410,19 @@ export function ProjectTeamTab({ projectId, onMembersUpdated }: ProjectTeamTabPr
             <p className="text-sm">Caricamento membri del team...</p>
           </div>
         ) : members.length === 0 ? (
-          <div className="py-16 text-center text-slate-400 space-y-2">
+          <div className="py-16 text-center text-slate-400 space-y-3">
             <Users className="h-10 w-10 mx-auto text-slate-400" />
             <p className="text-base font-semibold text-slate-300">Nessun membro assegnato al progetto</p>
             <p className="text-xs text-slate-400 max-w-sm mx-auto">
-              Aggiungi il project manager e gli operatori operativi per abilitare l'assegnazione dei task.
+              Aggiungi il project manager e gli operatori per abilitare l'assegnazione dei task e la gestione delle richieste cliente.
             </p>
+            <button
+              onClick={handleOpenAddModal}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow-md shadow-blue-500/20 transition-all mt-2"
+            >
+              <UserPlus className="h-4 w-4" />
+              <span>Aggiungi il Primo Membro</span>
+            </button>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -413,14 +533,15 @@ export function ProjectTeamTab({ projectId, onMembersUpdated }: ProjectTeamTabPr
         )}
       </div>
 
-      {/* ADD MEMBER MODAL */}
+      {/* ADD / INVITE MEMBER MODAL */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+            {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2">
                 <UserPlus className="h-5 w-5 text-blue-400" />
-                <h3 className="text-lg font-bold text-white">Aggiungi Membro al Team</h3>
+                <h3 className="text-lg font-bold text-white">Gestione Membri di Progetto</h3>
               </div>
               <button
                 onClick={() => setIsAddModalOpen(false)}
@@ -430,72 +551,310 @@ export function ProjectTeamTab({ projectId, onMembersUpdated }: ProjectTeamTabPr
               </button>
             </div>
 
-            {addError && (
-              <div className="p-3 bg-rose-950/50 border border-rose-800 text-rose-300 text-xs rounded-lg flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 flex-shrink-0 text-rose-400" />
-                <span>{addError}</span>
-              </div>
-            )}
+            {/* Success Invite Token Display Mode */}
+            {createdInviteUrl ? (
+              <div className="space-y-4 py-2">
+                <div className="p-4 bg-emerald-950/40 border border-emerald-800 rounded-xl space-y-3">
+                  <div className="flex items-center gap-2 text-emerald-300 font-semibold text-sm">
+                    <CheckCircle2 className="h-5 w-5 text-emerald-400 flex-shrink-0" />
+                    <span>Operatore creato e assegnato con successo!</span>
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Invia questo link di attivazione monouso al nuovo operatore. Potrà impostare la propria password
+                    e accedere subito a questo progetto.
+                  </p>
 
-            <form onSubmit={handleAddMember} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Seleziona Operatore *</label>
-                <select
-                  value={selectedUserId}
-                  onChange={(e) => setSelectedUserId(e.target.value)}
-                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-                >
-                  {availableUsersToAdd.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name} ({u.email}) - {u.role === 'admin' ? 'Admin' : 'Operatore'}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Ruolo in questo Progetto *</label>
-                <select
-                  value={selectedRole}
-                  onChange={(e) => setSelectedRole(e.target.value as any)}
-                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-                >
-                  <option value="contributor">Contributor (Aggiorna solo i task a lui assegnati)</option>
-                  <option value="editor">Editor (Modifica task, milestone e applica template)</option>
-                  <option value="manager">Manager (Gestione team, impostazioni e approvazione richieste)</option>
-                  <option value="viewer">Viewer (Sola lettura delle risorse)</option>
-                </select>
-              </div>
-
-              <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg text-[11px] text-slate-400 space-y-1">
-                <div className="flex items-center gap-1.5 text-slate-300 font-semibold">
-                  <Info className="h-3.5 w-3.5 text-blue-400" />
-                  <span>Permessi operativi</span>
+                  <div className="flex items-center gap-2 bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                    <input
+                      type="text"
+                      readOnly
+                      value={createdInviteUrl}
+                      className="bg-transparent text-xs text-blue-400 font-mono flex-1 outline-none truncate"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCopyInvite}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                    >
+                      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                      <span>{copied ? 'Copiato!' : 'Copia'}</span>
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    * Il link di attivazione ha una validità di 7 giorni.
+                  </p>
                 </div>
-                <p>
-                  L'utente aggiunto potrà visualizzare il progetto e potrà essere selezionato come assegnatario
-                  dei task e delle attività di questo progetto.
-                </p>
-              </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 rounded-lg text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                >
-                  Annulla
-                </button>
-                <button
-                  type="submit"
-                  disabled={adding || !selectedUserId}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-md shadow-blue-500/20 disabled:opacity-50 transition-all flex items-center gap-1.5"
-                >
-                  {adding && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
-                  <span>Aggiungi al Team</span>
-                </button>
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddModalOpen(false);
+                      setCreatedInviteUrl(null);
+                    }}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition-colors"
+                  >
+                    Chiudi
+                  </button>
+                </div>
               </div>
-            </form>
+            ) : (
+              <>
+                {/* Tabs Mode Switcher */}
+                <div className="flex items-center gap-2 p-1 bg-slate-950 border border-slate-800 rounded-xl text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setModalMode('select')}
+                    className={cn(
+                      'flex-1 py-2 px-3 rounded-lg font-medium transition-all text-center',
+                      modalMode === 'select'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    )}
+                  >
+                    Seleziona Esistente ({availableUsersToAdd.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalMode('create')}
+                    className={cn(
+                      'flex-1 py-2 px-3 rounded-lg font-medium transition-all text-center flex items-center justify-center gap-1.5',
+                      modalMode === 'create'
+                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    )}
+                  >
+                    <Sparkles className="h-3.5 w-3.5 text-blue-300" />
+                    <span>Crea & Assegna Nuovo</span>
+                  </button>
+                </div>
+
+                {addError && (
+                  <div className="p-3 bg-rose-950/50 border border-rose-800 text-rose-300 text-xs rounded-lg flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 flex-shrink-0 text-rose-400" />
+                    <span>{addError}</span>
+                  </div>
+                )}
+
+                {/* MODE 1: SELECT EXISTING USER */}
+                {modalMode === 'select' && (
+                  <form onSubmit={handleAddExistingMember} className="space-y-4">
+                    {availableUsersToAdd.length === 0 ? (
+                      <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl text-center space-y-3">
+                        <Users className="h-8 w-8 mx-auto text-slate-400" />
+                        <p className="text-xs text-slate-300 font-medium">
+                          Tutti gli operatori registrati nel CRM sono già membri di questo progetto.
+                        </p>
+                        <p className="text-[11px] text-slate-400">
+                          Puoi creare o invitare un nuovo operatore e assegnarlo direttamente al progetto.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setModalMode('create')}
+                          className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition-colors"
+                        >
+                          Crea / Invita Nuovo Operatore
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-300 mb-1">
+                            Seleziona Operatore *
+                          </label>
+                          <select
+                            value={selectedUserId}
+                            onChange={(e) => setSelectedUserId(e.target.value)}
+                            className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                          >
+                            {availableUsersToAdd.map((u) => (
+                              <option key={u.id} value={u.id}>
+                                {u.name} ({u.email}) - {u.role === 'admin' ? 'Admin' : 'Operatore'}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-300 mb-1">
+                            Ruolo in questo Progetto *
+                          </label>
+                          <select
+                            value={selectedRole}
+                            onChange={(e) => setSelectedRole(e.target.value as any)}
+                            className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                          >
+                            <option value="contributor">Contributor (Aggiorna i task a lui assegnati)</option>
+                            <option value="editor">Editor (Modifica task, milestone e applica template)</option>
+                            <option value="manager">Manager (Gestione team, impostazioni e approvazione richieste)</option>
+                            <option value="viewer">Viewer (Sola lettura delle risorse)</option>
+                          </select>
+                        </div>
+
+                        <div className="p-3 bg-slate-950 border border-slate-800 rounded-lg text-[11px] text-slate-400 space-y-1">
+                          <div className="flex items-center gap-1.5 text-slate-300 font-semibold">
+                            <Info className="h-3.5 w-3.5 text-blue-400" />
+                            <span>Permessi operativi</span>
+                          </div>
+                          <p>
+                            L'utente potrà visualizzare il progetto e potrà essere selezionato come assegnatario
+                            dei task operativi.
+                          </p>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => setIsAddModalOpen(false)}
+                            className="px-4 py-2 rounded-lg text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                          >
+                            Annulla
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={submitting || !selectedUserId}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-md shadow-blue-500/20 disabled:opacity-50 transition-all flex items-center gap-1.5"
+                          >
+                            {submitting && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                            <span>Aggiungi al Team</span>
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </form>
+                )}
+
+                {/* MODE 2: CREATE & ASSIGN NEW OPERATOR */}
+                {modalMode === 'create' && (
+                  <form onSubmit={handleCreateAndAssignMember} className="space-y-3.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-300 mb-1">Nome e Cognome *</label>
+                        <input
+                          type="text"
+                          required
+                          value={newName}
+                          onChange={(e) => setNewName(e.target.value)}
+                          placeholder="es. Mario Rossi"
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-300 mb-1">Email *</label>
+                        <input
+                          type="email"
+                          required
+                          value={newEmail}
+                          onChange={(e) => setNewEmail(e.target.value)}
+                          placeholder="mario@azienda.it"
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-300 mb-1">Ruolo Globale CRM *</label>
+                        <select
+                          value={newGlobalRole}
+                          onChange={(e) => setNewGlobalRole(e.target.value as any)}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                        >
+                          <option value="operator">Operatore (Standard)</option>
+                          <option value="admin">Admin (Amministratore CRM)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-300 mb-1">Ruolo nel Progetto *</label>
+                        <select
+                          value={newProjectRole}
+                          onChange={(e) => setNewProjectRole(e.target.value as any)}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                        >
+                          <option value="contributor">Contributor (Task assegnati)</option>
+                          <option value="editor">Editor (Modifica attività/template)</option>
+                          <option value="manager">Manager (Gestione completa)</option>
+                          <option value="viewer">Viewer (Sola lettura)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 pt-1 border-t border-slate-800">
+                      <label className="block text-xs font-semibold text-slate-300">Modalità di Accesso *</label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <label
+                          className={cn(
+                            'flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer text-xs transition-all',
+                            newAuthMode === 'invite'
+                              ? 'bg-blue-950/40 border-blue-500/50 text-blue-300'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                          )}
+                        >
+                          <input
+                            type="radio"
+                            name="newAuthMode"
+                            checked={newAuthMode === 'invite'}
+                            onChange={() => setNewAuthMode('invite')}
+                            className="hidden"
+                          />
+                          <LinkIcon className="h-3.5 w-3.5 text-blue-400 flex-shrink-0" />
+                          <span>Link Invito (7 giorni)</span>
+                        </label>
+
+                        <label
+                          className={cn(
+                            'flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer text-xs transition-all',
+                            newAuthMode === 'password'
+                              ? 'bg-blue-950/40 border-blue-500/50 text-blue-300'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                          )}
+                        >
+                          <input
+                            type="radio"
+                            name="newAuthMode"
+                            checked={newAuthMode === 'password'}
+                            onChange={() => setNewAuthMode('password')}
+                            className="hidden"
+                          />
+                          <KeyRound className="h-3.5 w-3.5 text-blue-400 flex-shrink-0" />
+                          <span>Password Iniziale</span>
+                        </label>
+                      </div>
+
+                      {newAuthMode === 'password' && (
+                        <div className="pt-1">
+                          <input
+                            type="password"
+                            placeholder="Password temporanea (minimo 6 caratteri)"
+                            value={newPassword}
+                            onChange={(e) => setNewPassword(e.target.value)}
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setIsAddModalOpen(false)}
+                        className="px-4 py-2 rounded-lg text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                      >
+                        Annulla
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={submitting}
+                        className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-lg shadow-md shadow-blue-500/20 disabled:opacity-50 transition-all flex items-center gap-1.5"
+                      >
+                        {submitting && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                        <span>Crea e Assegna al Team</span>
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </>
+            )}
           </div>
         </div>
       )}

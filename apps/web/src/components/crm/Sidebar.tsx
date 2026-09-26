@@ -38,18 +38,18 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
     },
   ];
 
-  const commercialNav = [
-    {
-      label: 'Leads & Pipeline',
-      href: '/crm/leads',
-      icon: Users,
-      active: pathname.startsWith('/crm/leads'),
-    },
+  const anagraficheNav = [
     {
       label: 'Aziende & Clienti',
       href: '/crm/companies',
       icon: Building2,
       active: pathname.startsWith('/crm/companies'),
+    },
+    {
+      label: 'Leads & Pipeline',
+      href: '/crm/leads',
+      icon: Users,
+      active: pathname.startsWith('/crm/leads'),
     },
     {
       label: 'Lead Gen Territoriale',
@@ -85,35 +85,60 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
       active: pathname.startsWith('/crm/tasks'),
     },
     {
-      label: 'Modelli di Processo',
-      href: '/crm/process-templates',
-      icon: Workflow,
-      active: pathname.startsWith('/crm/process-templates'),
+      label: 'Documenti',
+      href: '/crm/documents',
+      icon: Files,
+      active: pathname.startsWith('/crm/documents'),
     },
-    {
-      label: 'Team & Permessi',
-      href: '/crm/team',
-      icon: ShieldCheck,
-      active: pathname.startsWith('/crm/team'),
-    },
-  ];
-
-  const toolsNav = [
     {
       label: 'Enrichment AI',
       href: '/crm/enrichment',
       icon: Sparkles,
       active: pathname.startsWith('/crm/enrichment'),
     },
+  ];
+
+  const adminNav = [
     {
-      label: 'Documenti',
-      href: '/crm/documents',
-      icon: Files,
-      active: pathname.startsWith('/crm/documents'),
+      label: 'Team & Permessi',
+      href: '/crm/team',
+      icon: ShieldCheck,
+      active: pathname.startsWith('/crm/team'),
+    },
+    {
+      label: 'Modelli di Processo',
+      href: '/crm/process-templates',
+      icon: Workflow,
+      active: pathname.startsWith('/crm/process-templates'),
     },
   ];
 
-  const allNavItems = [...mainNav, ...commercialNav, ...operationalNav, ...toolsNav];
+  const bottomBarItems = [
+    {
+      label: 'Dashboard',
+      href: '/crm',
+      icon: LayoutDashboard,
+      active: pathname === '/crm',
+    },
+    {
+      label: 'Anagrafiche',
+      href: '/crm/companies',
+      icon: Building2,
+      active: pathname.startsWith('/crm/companies') || pathname.startsWith('/crm/leads'),
+    },
+    {
+      label: 'Progetti',
+      href: '/crm/projects',
+      icon: FolderKanban,
+      active: pathname.startsWith('/crm/projects') || pathname.startsWith('/crm/commesse'),
+    },
+    {
+      label: 'Admin',
+      href: '/crm/team',
+      icon: ShieldCheck,
+      active: pathname.startsWith('/crm/team') || pathname.startsWith('/crm/process-templates'),
+    },
+  ];
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -180,7 +205,7 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
                       <h1 className="text-sm font-bold tracking-tight text-white leading-tight">AI Agency CRM</h1>
                       <span className="text-[9px] bg-blue-500/15 text-blue-400 border border-blue-500/30 px-1.5 py-0.2 rounded font-mono font-medium">{APP_VERSION}</span>
                     </div>
-                    <span className="text-[9px] text-blue-400 font-medium tracking-wider uppercase">Menu Admin</span>
+                    <span className="text-[9px] text-blue-400 font-medium tracking-wider uppercase">Menu Navigazione</span>
                   </div>
                 </Link>
                 <button
@@ -221,9 +246,9 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
 
                 <div>
                   <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                    Commerciale
+                    Anagrafiche
                   </div>
-                  {commercialNav.map((item) => {
+                  {anagraficheNav.map((item) => {
                     const Icon = item.icon;
                     return (
                       <Link
@@ -270,10 +295,10 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
                 </div>
 
                 <div>
-                  <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                    Strumenti
+                  <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-purple-400">
+                    Area Admin
                   </div>
-                  {toolsNav.map((item) => {
+                  {adminNav.map((item) => {
                     const Icon = item.icon;
                     return (
                       <Link
@@ -283,11 +308,11 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
                         className={cn(
                           'flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
                           item.active
-                            ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30'
+                            ? 'bg-purple-600/15 text-purple-300 border border-purple-500/30 font-semibold'
                             : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/80'
                         )}
                       >
-                        <Icon className={cn('h-4 w-4', item.active ? 'text-blue-400' : 'text-slate-400')} />
+                        <Icon className={cn('h-4 w-4', item.active ? 'text-purple-400' : 'text-slate-400')} />
                         <span>{item.label}</span>
                       </Link>
                     );
@@ -348,7 +373,7 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
 
       {/* 3. MOBILE BOTTOM NAVIGATION BAR (md:hidden) */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 border-t border-slate-800 backdrop-blur-md px-2 py-1.5 flex items-center justify-around shadow-lg">
-        {allNavItems.slice(0, 4).map((item) => {
+        {bottomBarItems.map((item) => {
           const Icon = item.icon;
           return (
             <Link
@@ -362,7 +387,7 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
               )}
             >
               <Icon className={cn('h-4 w-4', item.active ? 'text-blue-400' : 'text-slate-400')} />
-              <span className="truncate max-w-[60px] text-center">{item.label.split(' ')[0]}</span>
+              <span className="truncate max-w-[65px] text-center">{item.label}</span>
             </Link>
           );
         })}
@@ -428,9 +453,9 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
 
             <div>
               <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                Commerciale
+                Anagrafiche
               </div>
-              {commercialNav.map((item) => {
+              {anagraficheNav.map((item) => {
                 const Icon = item.icon;
                 return (
                   <Link
@@ -475,10 +500,10 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
             </div>
 
             <div>
-              <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                Strumenti
+              <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-purple-400">
+                Area Admin
               </div>
-              {toolsNav.map((item) => {
+              {adminNav.map((item) => {
                 const Icon = item.icon;
                 return (
                   <Link
@@ -487,11 +512,11 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
                     className={cn(
                       'flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
                       item.active
-                        ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 font-semibold'
+                        ? 'bg-purple-600/15 text-purple-300 border border-purple-500/30 font-semibold'
                         : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/80'
                     )}
                   >
-                    <Icon className={cn('h-4 w-4', item.active ? 'text-blue-400' : 'text-slate-400')} />
+                    <Icon className={cn('h-4 w-4', item.active ? 'text-purple-400' : 'text-slate-400')} />
                     <span>{item.label}</span>
                   </Link>
                 );
