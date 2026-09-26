@@ -94,25 +94,80 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'La ragione sociale / nome azienda è obbligatorio' }, { status: 400 });
     }
 
+    const trimmedName = body.name.trim();
+    const trimmedVat = body.vatId?.trim() || null;
+    const trimmedFiscal = body.fiscalCode?.trim() || null;
+    const trimmedCity = body.city?.trim() || null;
+    const trimmedPlaceId = body.providerPlaceId?.trim() || null;
+    const force = Boolean(body.force);
+
+    // Controllo duplicati pre-creazione se non forzato
+    if (!force) {
+      const allExisting = db.select().from(companies).all();
+      for (const exist of allExisting) {
+        let dupReason: string | null = null;
+        if (trimmedVat && exist.vatId && exist.vatId.trim() === trimmedVat) {
+          dupReason = `Partita IVA già registrata (${exist.vatId})`;
+        } else if (trimmedFiscal && exist.fiscalCode && exist.fiscalCode.trim() === trimmedFiscal) {
+          dupReason = `Codice Fiscale già registrato (${exist.fiscalCode})`;
+        } else if (trimmedPlaceId && exist.providerPlaceId && exist.providerPlaceId.trim() === trimmedPlaceId) {
+          dupReason = `Luogo OpenStreetMap già registrato (${exist.providerPlaceId})`;
+        } else if (
+          trimmedCity &&
+          exist.city &&
+          exist.name.toLowerCase() === trimmedName.toLowerCase() &&
+          exist.city.toLowerCase() === trimmedCity.toLowerCase()
+        ) {
+          dupReason = `Azienda con stesso nome e comune già presente (${exist.name}, ${exist.city})`;
+        }
+
+        if (dupReason) {
+          return NextResponse.json(
+            {
+              error: `Azienda già presente nel CRM: ${dupReason}`,
+              duplicateOfCompanyId: exist.id,
+              duplicateCompany: exist,
+              isDuplicate: true,
+            },
+            { status: 409 }
+          );
+        }
+      }
+    }
+
     const now = new Date().toISOString();
     const companyId = `comp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
     const newCompany = {
       id: companyId,
-      name: body.name.trim(),
-      vatId: body.vatId?.trim() || null,
+      name: trimmedName,
+      legalName: body.legalName?.trim() || null,
+      vatId: trimmedVat,
+      fiscalCode: trimmedFiscal,
+      rea: body.rea?.trim() || null,
       sector: body.sector || 'local_services',
+      ateco: body.ateco?.trim() || null,
+      legalAddress: body.legalAddress?.trim() || null,
+      operatingAddress: body.operatingAddress?.trim() || null,
       estimatedRevenue: body.estimatedRevenue || null,
       employeeCount: body.employeeCount || null,
       techStackJson: body.techStack ? JSON.stringify(body.techStack) : null,
-      address: body.address?.trim() || null,
-      city: body.city?.trim() || null,
+      address: body.address?.trim() || body.operatingAddress?.trim() || body.legalAddress?.trim() || null,
+      city: trimmedCity,
+      province: body.province?.trim() || null,
       phone: body.phone?.trim() || null,
       email: body.email?.trim() || null,
+      pec: body.pec?.trim() || null,
       website: body.website?.trim() || null,
-      rating: body.rating ? Number(body.rating) : null,
-      reviewCount: body.reviewCount ? Number(body.reviewCount) : 0,
+      rating: body.rating !== undefined && body.rating !== null ? Number(body.rating) : null,
+      reviewCount: body.reviewCount !== undefined && body.reviewCount !== null ? Number(body.reviewCount) : null,
       notes: body.notes?.trim() || null,
+      source: body.source?.trim() || 'inserimento_manuale',
+      sourceUrl: body.sourceUrl?.trim() || null,
+      providerPlaceId: trimmedPlaceId,
+      confidence: body.confidence?.trim() || (body.source ? 'high' : 'medium'),
+      rawSourceData: body.rawSourceData ? (typeof body.rawSourceData === 'string' ? body.rawSourceData : JSON.stringify(body.rawSourceData)) : null,
+      fieldSourcesJson: body.fieldSources ? (typeof body.fieldSources === 'string' ? body.fieldSources : JSON.stringify(body.fieldSources)) : null,
       createdAt: now,
       updatedAt: now,
     };
@@ -124,7 +179,13 @@ export async function POST(request: Request) {
       entityId: companyId,
       action: 'company_created',
       performedBy: user.userId,
-      details: { name: newCompany.name, sector: newCompany.sector, vatId: newCompany.vatId },
+      details: {
+        name: newCompany.name,
+        legalName: newCompany.legalName,
+        sector: newCompany.sector,
+        vatId: newCompany.vatId,
+        source: newCompany.source,
+      },
     });
 
     return NextResponse.json({ success: true, company: newCompany }, { status: 201 });
@@ -138,3 +199,4 @@ export async function POST(request: Request) {
     );
   }
 }
+

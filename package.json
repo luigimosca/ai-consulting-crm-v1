@@ -11,7 +11,8 @@
     "build": "npm --workspace=apps/web run build",
     "start": "npm --workspace=apps/web run start",
     "seed": "tsx scripts/seed.ts",
-    "test:pipeline": "tsx scripts/test-pipeline.ts"
+    "test:pipeline": "tsx scripts/test-pipeline.ts",
+    "test:companies": "tsx scripts/test-public-company-search.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

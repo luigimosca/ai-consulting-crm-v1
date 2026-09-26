@@ -45,7 +45,26 @@ Pipeline modulare a **6 Adapter operativi** per l'audit approfondito dei prospec
 - **Doppio Punteggio**: Calcolo separato di **Commercial Opportunity Score** (0–100) e **Data Reliability Score** (0–100).
 - **Enrichment Massivo in Batch**: Supporto arricchimento rapido per liste di lead.
 
-### 4. CRM & Outreach AI (`/crm/leads`)
+### 4. Gestione Anagrafica Aziende & Ricerca Dati Pubblici (`/crm/companies`)
+- **Doppia Modalità di Creazione**:
+  1. **Ricerca Dati Pubblici (Precompilazione Intelligente)**: Interroga in parallelo OpenStreetMap, web ufficiale istituzionale e registri pubblici.
+  2. **Inserimento Manuale Diretto**: Compilazione completa di tutti i dati anagrafici e fiscali.
+- **Generatore Automatico di Varianti Nome**:
+  - Testo originale e normalizzato senza punteggiatura.
+  - Versione senza spazi (es. `JammJa`), versione con trattini (`Jamm-Ja`).
+  - Riconoscimento ed espansione suffissi societari (`S.r.l.`, `SRL`, `S.p.A.`, `SNC`, `SAS`) ed estensioni di attività (`Charter`, `Studio`, `Group`).
+- **Deduplicazione Multilivello**:
+  - Confronto automatico su: Partita IVA, Codice Fiscale, Dominio web, Nome normalizzato + Città, e `providerPlaceId`.
+  - Notifica immediata di duplicato con link diretto alla scheda cliente esistente.
+- **Integrità dei Dati & Distinzione Sedi**:
+  - Distinzione netta tra **Sede Legale** (desunta da registri/footer) e **Sede Operativa** (desunta da OSM o punti vendita).
+  - Nessun dato inventato: campi assenti restano `null` contrassegnati come "Non disponibile".
+  - Badge di origine per ogni campo nel form (`Da OSM`, `Da sito ufficiale`, `Da fonte pubblica`, `Inserito manualmente`, `Da verificare`).
+- **Adattatori di Verifica Istituzionale**:
+  - **INI-PEC**: Link diretto di consultazione per l'Indice Nazionale Indirizzi PEC senza scraping aggressivo.
+  - **Registro Imprese**: Collegamento per visure e bilanci camerali con trasparenza sui limiti dei dati aperti.
+
+### 5. CRM & Outreach AI (`/crm/leads`)
 - **Autenticazione con Ruoli**: Sessioni JWT sicure in cookie `httpOnly` con ruoli `admin` e `operator`.
 - **Generatore Outreach AI**: Crea copy personalizzati per Email, WhatsApp e Script telefonico in 1 click.
 - **Deduplicazione Automatica**: Prevenzione automatica di lead duplicati per nome azienda e città.
@@ -118,6 +137,11 @@ La piattaforma sarà accessibile su **http://localhost:3005**.
 ---
 
 ## 🧪 Esecuzione dei Test Automatici
+
+Per verificare il modulo di ricerca pubblica aziende, varianti e deduplicazione:
+```bash
+npm run test:companies
+```
 
 Per verificare l'intera pipeline (Database, Chatbot LLM, Lead Gen Territoriale OpenStreetMap, Enrichment a 6 Adapter, Sicurezza SSRF e JWT):
 ```bash

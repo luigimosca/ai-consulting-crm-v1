@@ -104,16 +104,29 @@ export async function PATCH(
     };
 
     if (body.name !== undefined) updateData.name = body.name.trim();
+    if (body.legalName !== undefined) updateData.legalName = body.legalName?.trim() || null;
     if (body.vatId !== undefined) updateData.vatId = body.vatId?.trim() || null;
+    if (body.fiscalCode !== undefined) updateData.fiscalCode = body.fiscalCode?.trim() || null;
+    if (body.rea !== undefined) updateData.rea = body.rea?.trim() || null;
     if (body.sector !== undefined) updateData.sector = body.sector;
+    if (body.ateco !== undefined) updateData.ateco = body.ateco?.trim() || null;
+    if (body.legalAddress !== undefined) updateData.legalAddress = body.legalAddress?.trim() || null;
+    if (body.operatingAddress !== undefined) updateData.operatingAddress = body.operatingAddress?.trim() || null;
     if (body.estimatedRevenue !== undefined) updateData.estimatedRevenue = body.estimatedRevenue;
     if (body.employeeCount !== undefined) updateData.employeeCount = body.employeeCount;
     if (body.address !== undefined) updateData.address = body.address?.trim() || null;
     if (body.city !== undefined) updateData.city = body.city?.trim() || null;
+    if (body.province !== undefined) updateData.province = body.province?.trim() || null;
     if (body.phone !== undefined) updateData.phone = body.phone?.trim() || null;
     if (body.email !== undefined) updateData.email = body.email?.trim() || null;
+    if (body.pec !== undefined) updateData.pec = body.pec?.trim() || null;
     if (body.website !== undefined) updateData.website = body.website?.trim() || null;
     if (body.notes !== undefined) updateData.notes = body.notes?.trim() || null;
+    if (body.source !== undefined) updateData.source = body.source?.trim() || null;
+    if (body.sourceUrl !== undefined) updateData.sourceUrl = body.sourceUrl?.trim() || null;
+    if (body.providerPlaceId !== undefined) updateData.providerPlaceId = body.providerPlaceId?.trim() || null;
+    if (body.confidence !== undefined) updateData.confidence = body.confidence?.trim() || null;
+    if (body.fieldSources !== undefined) updateData.fieldSourcesJson = typeof body.fieldSources === 'string' ? body.fieldSources : JSON.stringify(body.fieldSources);
 
     db.update(companies).set(updateData).where(eq(companies.id, id)).run();
 

@@ -31,12 +31,16 @@ export async function POST(
       // Update existing company if new data available
       db.update(companies)
         .set({
+          legalName: existingCompany.legalName || lead.companyName,
           vatId: existingCompany.vatId || fi?.vatId || null,
+          fiscalCode: existingCompany.fiscalCode || fi?.taxCode || null,
+          ateco: existingCompany.ateco || fi?.atecoCode || null,
           phone: existingCompany.phone || lead.phone || null,
           email: existingCompany.email || lead.email || null,
           website: existingCompany.website || lead.website || null,
           city: existingCompany.city || lead.city || null,
           address: existingCompany.address || lead.address || null,
+          operatingAddress: existingCompany.operatingAddress || lead.address || null,
           updatedAt: now,
         })
         .where(eq(companies.id, existingCompany.id))
@@ -46,19 +50,30 @@ export async function POST(
       const newCompany = {
         id: companyId,
         name: lead.companyName,
+        legalName: lead.companyName,
         vatId: fi?.vatId || null,
+        fiscalCode: fi?.taxCode || null,
+        rea: null,
         sector: lead.sector,
+        ateco: fi?.atecoCode || null,
+        legalAddress: null,
+        operatingAddress: lead.address || null,
         estimatedRevenue: fi?.revenueOfficial ? `${fi.revenueOfficial / 100} €` : null,
         employeeCount: fi?.employeesOfficial ? String(fi.employeesOfficial) : null,
         techStackJson: null,
         address: lead.address || null,
         city: lead.city || null,
+        province: null,
         phone: lead.phone || null,
         email: lead.email || null,
+        pec: null,
         website: lead.website || null,
         rating: null,
         reviewCount: 0,
         notes: `Convertita da Lead CRM (${lead.id}) il ${now.slice(0, 10)}. ${lead.notes || ''}`,
+        source: 'crm_lead',
+        sourceUrl: `/crm/leads/${lead.id}`,
+        confidence: 'high',
         createdAt: now,
         updatedAt: now,
       };

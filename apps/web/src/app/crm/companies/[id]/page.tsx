@@ -28,6 +28,9 @@ import {
   DollarSign,
   Calendar,
   CheckCircle2,
+  ShieldCheck,
+  Compass,
+  FileCheck,
 } from 'lucide-react';
 
 const SECTOR_OPTIONS = [
@@ -56,16 +59,25 @@ export default function CompanyDetailPage({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editForm, setEditForm] = useState({
     name: '',
+    legalName: '',
     vatId: '',
+    fiscalCode: '',
+    rea: '',
     sector: '',
+    ateco: '',
+    legalAddress: '',
+    operatingAddress: '',
     address: '',
     city: '',
+    province: '',
     phone: '',
     email: '',
+    pec: '',
     website: '',
     estimatedRevenue: '',
     employeeCount: '',
     notes: '',
+    source: '',
   });
 
   const fetchCompanyDetails = async () => {
@@ -78,16 +90,25 @@ export default function CompanyDetailPage({
         if (data.company) {
           setEditForm({
             name: data.company.name || '',
+            legalName: data.company.legalName || '',
             vatId: data.company.vatId || '',
+            fiscalCode: data.company.fiscalCode || '',
+            rea: data.company.rea || '',
             sector: data.company.sector || 'horeca_ristoranti',
+            ateco: data.company.ateco || '',
+            legalAddress: data.company.legalAddress || '',
+            operatingAddress: data.company.operatingAddress || '',
             address: data.company.address || '',
             city: data.company.city || '',
+            province: data.company.province || '',
             phone: data.company.phone || '',
             email: data.company.email || '',
+            pec: data.company.pec || '',
             website: data.company.website || '',
             estimatedRevenue: data.company.estimatedRevenue || '',
             employeeCount: data.company.employeeCount || '',
             notes: data.company.notes || '',
+            source: data.company.source || '',
           });
         }
       } else {
@@ -183,7 +204,17 @@ export default function CompanyDetailPage({
             <Badge variant="outline" className="bg-blue-500/10 text-blue-400 border-blue-500/30">
               {formatSectorLabel(company.sector)}
             </Badge>
+            {company.source && (
+              <Badge variant="outline" className="text-[10px] bg-slate-900 text-slate-400 border-slate-800">
+                Fonte: {company.source}
+              </Badge>
+            )}
           </div>
+          {company.legalName && company.legalName !== company.name && (
+            <div className="text-xs text-slate-400">
+              Ragione Sociale: <span className="text-slate-200 font-semibold">{company.legalName}</span>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -268,13 +299,33 @@ export default function CompanyDetailPage({
             <h2 className="text-base font-semibold text-white">Dati Aziendali & Fiscali</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div>
-                <span className="text-xs text-slate-500 block">Ragione Sociale</span>
+                <span className="text-xs text-slate-500 block">Nome Commerciale</span>
                 <span className="font-semibold text-slate-200">{company.name}</span>
               </div>
 
               <div>
-                <span className="text-xs text-slate-500 block">Partita IVA / Codice Fiscale</span>
-                <span className="font-mono text-slate-200">{company.vatId || 'Non specificata'}</span>
+                <span className="text-xs text-slate-500 block">Ragione Sociale Formale</span>
+                <span className="text-slate-200">{company.legalName || company.name}</span>
+              </div>
+
+              <div>
+                <span className="text-xs text-slate-500 block">Partita IVA</span>
+                <span className="font-mono text-slate-200">{company.vatId || 'Non disponibile'}</span>
+              </div>
+
+              <div>
+                <span className="text-xs text-slate-500 block">Codice Fiscale</span>
+                <span className="font-mono text-slate-200">{company.fiscalCode || company.vatId || 'Non disponibile'}</span>
+              </div>
+
+              <div>
+                <span className="text-xs text-slate-500 block">Numero REA</span>
+                <span className="text-slate-200">{company.rea || 'Non disponibile'}</span>
+              </div>
+
+              <div>
+                <span className="text-xs text-slate-500 block">Codice ATECO</span>
+                <span className="text-slate-200">{company.ateco || 'Non disponibile'}</span>
               </div>
 
               <div>
@@ -283,18 +334,18 @@ export default function CompanyDetailPage({
               </div>
 
               <div>
-                <span className="text-xs text-slate-500 block">Sede & Città</span>
-                <span className="text-slate-200">{[company.address, company.city].filter(Boolean).join(', ') || 'Non specificata'}</span>
+                <span className="text-xs text-slate-500 block">Città / Provincia</span>
+                <span className="text-slate-200">{[company.city, company.province].filter(Boolean).join(' (') + (company.province ? ')' : '') || 'Non specificata'}</span>
               </div>
 
               <div>
-                <span className="text-xs text-slate-500 block">Fatturato Stimato</span>
-                <span className="text-slate-200">{company.estimatedRevenue || 'N/D'}</span>
+                <span className="text-xs text-slate-500 block">Sede Legale</span>
+                <span className="text-slate-200">{company.legalAddress || 'Non specificata'}</span>
               </div>
 
               <div>
-                <span className="text-xs text-slate-500 block">Dipendenti Stimati</span>
-                <span className="text-slate-200">{company.employeeCount || 'N/D'}</span>
+                <span className="text-xs text-slate-500 block">Sede Operativa / Punto Vendita</span>
+                <span className="text-slate-200">{company.operatingAddress || company.address || 'Non specificata'}</span>
               </div>
             </div>
 
@@ -338,6 +389,16 @@ export default function CompanyDetailPage({
                     <a href={`mailto:${company.email}`} className="text-slate-200 hover:underline font-medium mt-0.5 block">
                       {company.email}
                     </a>
+                  </div>
+                </div>
+              )}
+
+              {company.pec && (
+                <div className="flex items-start gap-2.5">
+                  <ShieldCheck className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                  <div>
+                    <span className="text-slate-500 block text-[11px]">PEC Ufficiale</span>
+                    <span className="text-slate-200 font-medium mt-0.5 block font-mono">{company.pec}</span>
                   </div>
                 </div>
               )}
@@ -466,12 +527,12 @@ export default function CompanyDetailPage({
                       <Badge variant="outline" className="text-[10px]">{q.status}</Badge>
                     </div>
                     <div className="text-xs text-slate-400 mt-0.5">
-                      Totale: <span className="font-bold text-slate-200">{formatCentsToCurrency(q.totalAmount, q.currency)}</span>
+                      Importo: <span className="font-bold text-slate-200">{formatCentsToCurrency(q.totalAmount, q.currency)}</span>
                     </div>
                   </div>
                   <Link href={`/crm/quotes/${q.id}`}>
                     <Button size="sm" variant="outline" className="text-xs">
-                      Dettaglio Preventivo
+                      Visualizza Preventivo
                     </Button>
                   </Link>
                 </div>
@@ -481,30 +542,52 @@ export default function CompanyDetailPage({
         </Card>
       )}
 
-      {/* MODAL: EDIT COMPANY */}
+      {/* EDIT MODAL */}
       <Dialog
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
         title="Modifica Anagrafica Azienda"
         description="Aggiorna i dati anagrafici, fiscali e di contatto dell'azienda."
       >
-        <form onSubmit={handleUpdateCompany} className="space-y-4">
-          <Input
-            label="Ragione Sociale / Nome Azienda *"
-            value={editForm.name}
-            onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-            required
-            className="bg-slate-900 border-slate-800"
-          />
-
+        <form onSubmit={handleUpdateCompany} className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input
-              label="Partita IVA / Codice Fiscale"
+              label="Nome Commerciale *"
+              value={editForm.name}
+              onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+              required
+              className="bg-slate-900 border-slate-800 text-xs"
+            />
+            <Input
+              label="Ragione Sociale Formale"
+              value={editForm.legalName}
+              onChange={(e) => setEditForm({ ...editForm, legalName: e.target.value })}
+              className="bg-slate-900 border-slate-800 text-xs"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Input
+              label="Partita IVA"
               value={editForm.vatId}
               onChange={(e) => setEditForm({ ...editForm, vatId: e.target.value })}
-              className="bg-slate-900 border-slate-800"
+              className="bg-slate-900 border-slate-800 text-xs font-mono"
             />
+            <Input
+              label="Codice Fiscale"
+              value={editForm.fiscalCode}
+              onChange={(e) => setEditForm({ ...editForm, fiscalCode: e.target.value })}
+              className="bg-slate-900 border-slate-800 text-xs font-mono"
+            />
+            <Input
+              label="Numero REA"
+              value={editForm.rea}
+              onChange={(e) => setEditForm({ ...editForm, rea: e.target.value })}
+              className="bg-slate-900 border-slate-800 text-xs"
+            />
+          </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1">Settore Merceologico *</label>
               <Select
@@ -519,60 +602,70 @@ export default function CompanyDetailPage({
                 ))}
               </Select>
             </div>
+            <Input
+              label="Codice ATECO"
+              value={editForm.ateco}
+              onChange={(e) => setEditForm({ ...editForm, ateco: e.target.value })}
+              className="bg-slate-900 border-slate-800 text-xs"
+            />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input
-              label="Indirizzo Sede"
-              value={editForm.address}
-              onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
-              className="bg-slate-900 border-slate-800"
+              label="Sede Legale"
+              value={editForm.legalAddress}
+              onChange={(e) => setEditForm({ ...editForm, legalAddress: e.target.value })}
+              className="bg-slate-900 border-slate-800 text-xs"
             />
-
             <Input
-              label="Città / Prov."
-              value={editForm.city}
-              onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
-              className="bg-slate-900 border-slate-800"
+              label="Sede Operativa / Punto Vendita"
+              value={editForm.operatingAddress}
+              onChange={(e) => setEditForm({ ...editForm, operatingAddress: e.target.value })}
+              className="bg-slate-900 border-slate-800 text-xs"
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              label="Città / Comune"
+              value={editForm.city}
+              onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
+              className="bg-slate-900 border-slate-800 text-xs"
+            />
+            <Input
+              label="Provincia"
+              value={editForm.province}
+              onChange={(e) => setEditForm({ ...editForm, province: e.target.value })}
+              className="bg-slate-900 border-slate-800 text-xs"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <Input
               label="Telefono"
               value={editForm.phone}
               onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
-              className="bg-slate-900 border-slate-800"
+              className="bg-slate-900 border-slate-800 text-xs"
             />
-
             <Input
               label="Email"
+              type="email"
               value={editForm.email}
               onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-              className="bg-slate-900 border-slate-800"
+              className="bg-slate-900 border-slate-800 text-xs"
             />
-
+            <Input
+              label="PEC"
+              type="email"
+              value={editForm.pec}
+              onChange={(e) => setEditForm({ ...editForm, pec: e.target.value })}
+              className="bg-slate-900 border-slate-800 text-xs"
+            />
             <Input
               label="Sito Web"
               value={editForm.website}
               onChange={(e) => setEditForm({ ...editForm, website: e.target.value })}
-              className="bg-slate-900 border-slate-800"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input
-              label="Fatturato Stimato"
-              value={editForm.estimatedRevenue}
-              onChange={(e) => setEditForm({ ...editForm, estimatedRevenue: e.target.value })}
-              className="bg-slate-900 border-slate-800"
-            />
-
-            <Input
-              label="Dipendenti"
-              value={editForm.employeeCount}
-              onChange={(e) => setEditForm({ ...editForm, employeeCount: e.target.value })}
-              className="bg-slate-900 border-slate-800"
+              className="bg-slate-900 border-slate-800 text-xs"
             />
           </div>
 
