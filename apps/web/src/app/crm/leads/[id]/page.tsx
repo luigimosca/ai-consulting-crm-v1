@@ -210,6 +210,27 @@ export default function LeadDetailPage({
     }
   };
 
+  const handleConvertToCompany = async () => {
+    if (!lead) return;
+    try {
+      const res = await fetch(`/api/leads/${id}/convert-to-company`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert('Lead promosso con successo ad Azienda Cliente in Anagrafica!');
+        fetchLeadData();
+        if (data.company?.id) {
+          router.push(`/crm/companies/${data.company.id}`);
+        }
+      } else {
+        alert(data.error || 'Errore durante la conversione');
+      }
+    } catch (err) {
+      console.error('Error converting lead to company:', err);
+    }
+  };
+
   // Scoperta online di siti e social con AI gratuita
   const handleDiscoverDomain = async () => {
     if (!lead) return;
@@ -595,6 +616,25 @@ export default function LeadDetailPage({
             <Receipt className="h-3.5 w-3.5" />
             <span>Crea Preventivo</span>
           </Button>
+
+          {lead.status !== 'convertito' ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleConvertToCompany}
+              className="gap-1.5 text-xs border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10"
+            >
+              <Building2 className="h-3.5 w-3.5" />
+              <span>Converti in Azienda</span>
+            </Button>
+          ) : (
+            <Link href="/crm/companies">
+              <Badge variant="outline" className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30 gap-1 py-1 px-2 text-xs cursor-pointer hover:bg-emerald-500/25">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                <span>Azienda Registrata</span>
+              </Badge>
+            </Link>
+          )}
 
           <Button
             variant="glow"

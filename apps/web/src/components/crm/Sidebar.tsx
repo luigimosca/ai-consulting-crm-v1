@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { 
   LayoutDashboard, 
   Users, 
+  Building2,
   Search, 
   Sparkles, 
   Globe, 
@@ -42,6 +43,12 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
       href: '/crm/leads',
       icon: Users,
       active: pathname.startsWith('/crm/leads'),
+    },
+    {
+      label: 'Aziende & Clienti',
+      href: '/crm/companies',
+      icon: Building2,
+      active: pathname.startsWith('/crm/companies'),
     },
     {
       label: 'Lead Gen Territoriale',
