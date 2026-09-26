@@ -31,3 +31,5 @@ yarn-error.log*
 # SQLite database
 *.db
 sqlite.db
+*.backup
+storage_vault/

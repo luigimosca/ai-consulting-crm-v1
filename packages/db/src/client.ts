@@ -327,9 +327,242 @@ export function initDatabase() {
       updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS decision_makers_lead_id_idx ON decision_makers(lead_id);
+
+    -- =========================================================================
+    -- FASE 1: Ciclo Operativo Agenzia (Tabelle DDL)
+    -- =========================================================================
+
+    CREATE TABLE IF NOT EXISTS quotes (
+      id TEXT PRIMARY KEY,
+      quote_number TEXT NOT NULL UNIQUE,
+      lead_id TEXT REFERENCES leads(id),
+      company_id TEXT REFERENCES companies(id),
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'bozza',
+      current_version_number INTEGER NOT NULL DEFAULT 1,
+      subtotal INTEGER NOT NULL DEFAULT 0,
+      discount_total INTEGER NOT NULL DEFAULT 0,
+      tax_rate REAL NOT NULL DEFAULT 22.0,
+      tax_total INTEGER NOT NULL DEFAULT 0,
+      total_amount INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'EUR',
+      valid_until TEXT,
+      payment_terms TEXT,
+      delivery_terms TEXT,
+      notes TEXT,
+      created_by TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS quotes_lead_id_idx ON quotes(lead_id);
+    CREATE INDEX IF NOT EXISTS quotes_status_idx ON quotes(status);
+    CREATE INDEX IF NOT EXISTS quotes_quote_number_idx ON quotes(quote_number);
+
+    CREATE TABLE IF NOT EXISTS quote_versions (
+      id TEXT PRIMARY KEY,
+      quote_id TEXT NOT NULL REFERENCES quotes(id),
+      version_number INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      subtotal INTEGER NOT NULL DEFAULT 0,
+      discount_total INTEGER NOT NULL DEFAULT 0,
+      tax_rate REAL NOT NULL DEFAULT 22.0,
+      tax_total INTEGER NOT NULL DEFAULT 0,
+      total_amount INTEGER NOT NULL DEFAULT 0,
+      valid_until TEXT,
+      payment_terms TEXT,
+      delivery_terms TEXT,
+      notes TEXT,
+      snapshot_items_json TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS quote_versions_quote_id_idx ON quote_versions(quote_id);
+    CREATE INDEX IF NOT EXISTS quote_versions_number_idx ON quote_versions(quote_id, version_number);
+
+    CREATE TABLE IF NOT EXISTS quote_items (
+      id TEXT PRIMARY KEY,
+      quote_id TEXT NOT NULL REFERENCES quotes(id),
+      version_number INTEGER NOT NULL DEFAULT 1,
+      description TEXT NOT NULL,
+      quantity REAL NOT NULL DEFAULT 1,
+      unit_price INTEGER NOT NULL DEFAULT 0,
+      discount_percent REAL NOT NULL DEFAULT 0,
+      tax_rate REAL NOT NULL DEFAULT 22.0,
+      cost_type TEXT NOT NULL DEFAULT 'one_time',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      line_total INTEGER NOT NULL DEFAULT 0,
+      notes TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS quote_items_quote_id_idx ON quote_items(quote_id);
+
+    CREATE TABLE IF NOT EXISTS approvals (
+      id TEXT PRIMARY KEY,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      approval_type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'richiesta',
+      requested_by TEXT NOT NULL REFERENCES users(id),
+      requested_at TEXT NOT NULL,
+      decided_by TEXT,
+      decided_at TEXT,
+      comment TEXT,
+      method TEXT,
+      evidence_document_id TEXT,
+      evidence_notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS approvals_entity_idx ON approvals(entity_type, entity_id);
+    CREATE INDEX IF NOT EXISTS approvals_status_idx ON approvals(status);
+
+    CREATE TABLE IF NOT EXISTS orders (
+      id TEXT PRIMARY KEY,
+      code TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      lead_id TEXT REFERENCES leads(id),
+      company_id TEXT REFERENCES companies(id),
+      quote_id TEXT REFERENCES quotes(id),
+      quote_version_id TEXT REFERENCES quote_versions(id),
+      agreed_value INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'EUR',
+      status TEXT NOT NULL DEFAULT 'da_avviare',
+      manager_id TEXT REFERENCES users(id),
+      start_date TEXT,
+      due_date TEXT,
+      completed_at TEXT,
+      deliverables_snapshot_json TEXT,
+      notes TEXT,
+      created_by TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS orders_code_idx ON orders(code);
+    CREATE INDEX IF NOT EXISTS orders_lead_id_idx ON orders(lead_id);
+    CREATE INDEX IF NOT EXISTS orders_quote_id_idx ON orders(quote_id);
+    CREATE INDEX IF NOT EXISTS orders_status_idx ON orders(status);
+    CREATE INDEX IF NOT EXISTS orders_manager_id_idx ON orders(manager_id);
+
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL REFERENCES orders(id),
+      code TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'pianificato',
+      manager_id TEXT REFERENCES users(id),
+      start_date TEXT,
+      due_date TEXT,
+      completed_at TEXT,
+      progress_percent INTEGER NOT NULL DEFAULT 0,
+      budget_hours REAL DEFAULT 0,
+      created_by TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS projects_order_id_idx ON projects(order_id);
+    CREATE INDEX IF NOT EXISTS projects_status_idx ON projects(status);
+    CREATE INDEX IF NOT EXISTS projects_manager_id_idx ON projects(manager_id);
+
+    CREATE TABLE IF NOT EXISTS project_milestones (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      title TEXT NOT NULL,
+      description TEXT,
+      due_date TEXT NOT NULL,
+      actual_date TEXT,
+      status TEXT NOT NULL DEFAULT 'in_programma',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS project_milestones_project_id_idx ON project_milestones(project_id);
+    CREATE INDEX IF NOT EXISTS project_milestones_status_idx ON project_milestones(status);
+
+    CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      milestone_id TEXT REFERENCES project_milestones(id),
+      title TEXT NOT NULL,
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'da_fare',
+      priority TEXT NOT NULL DEFAULT 'media',
+      planned_start_date TEXT,
+      planned_end_date TEXT,
+      actual_start_date TEXT,
+      actual_end_date TEXT,
+      estimated_hours REAL DEFAULT 0,
+      actual_hours REAL DEFAULT 0,
+      progress_percent INTEGER NOT NULL DEFAULT 0,
+      checklist_json TEXT DEFAULT '[]',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_by TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS tasks_project_id_idx ON tasks(project_id);
+    CREATE INDEX IF NOT EXISTS tasks_status_idx ON tasks(status);
+    CREATE INDEX IF NOT EXISTS tasks_priority_idx ON tasks(priority);
+
+    CREATE TABLE IF NOT EXISTS task_assignments (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id),
+      user_id TEXT NOT NULL REFERENCES users(id),
+      role TEXT NOT NULL DEFAULT 'contributor',
+      assigned_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS task_assignments_task_id_idx ON task_assignments(task_id);
+    CREATE INDEX IF NOT EXISTS task_assignments_user_id_idx ON task_assignments(user_id);
+
+    CREATE TABLE IF NOT EXISTS task_dependencies (
+      id TEXT PRIMARY KEY,
+      predecessor_task_id TEXT NOT NULL REFERENCES tasks(id),
+      successor_task_id TEXT NOT NULL REFERENCES tasks(id),
+      dependency_type TEXT NOT NULL DEFAULT 'finish_to_start',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS task_dep_predecessor_idx ON task_dependencies(predecessor_task_id);
+    CREATE INDEX IF NOT EXISTS task_dep_successor_idx ON task_dependencies(successor_task_id);
+
+    CREATE TABLE IF NOT EXISTS documents (
+      id TEXT PRIMARY KEY,
+      original_name TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      storage_key TEXT NOT NULL UNIQUE,
+      storage_provider TEXT NOT NULL DEFAULT 'local',
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      visibility TEXT NOT NULL DEFAULT 'internal',
+      uploaded_by TEXT NOT NULL REFERENCES users(id),
+      notes TEXT,
+      is_archived INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS documents_entity_idx ON documents(entity_type, entity_id);
+    CREATE INDEX IF NOT EXISTS documents_uploaded_by_idx ON documents(uploaded_by);
+
+    CREATE TABLE IF NOT EXISTS activity_log (
+      id TEXT PRIMARY KEY,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      performed_by TEXT NOT NULL REFERENCES users(id),
+      details_json TEXT,
+      before_json TEXT,
+      after_json TEXT,
+      ip_address TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS activity_log_entity_idx ON activity_log(entity_type, entity_id);
+    CREATE INDEX IF NOT EXISTS activity_log_performed_by_idx ON activity_log(performed_by);
+    CREATE INDEX IF NOT EXISTS activity_log_created_at_idx ON activity_log(created_at);
   `);
 
-  // Migrazione retrocompatibile per colonne aggiuntive se la tabella esisteva già
+  // Migrazione retrocompatibile per colonne aggiuntive se le tabelle esistevano già
   const migrations = [
     'ALTER TABLE decision_makers ADD COLUMN source_url TEXT',
     'ALTER TABLE decision_makers ADD COLUMN raw_data TEXT',
@@ -338,6 +571,14 @@ export function initDatabase() {
     'ALTER TABLE decision_makers ADD COLUMN verification_method TEXT DEFAULT "website_published"',
     'ALTER TABLE decision_makers ADD COLUMN notes TEXT',
     'ALTER TABLE decision_makers ADD COLUMN updated_at TEXT',
+    'ALTER TABLE tasks ADD COLUMN planned_start_date TEXT',
+    'ALTER TABLE tasks ADD COLUMN planned_end_date TEXT',
+    'ALTER TABLE tasks ADD COLUMN actual_start_date TEXT',
+    'ALTER TABLE tasks ADD COLUMN actual_end_date TEXT',
+    'ALTER TABLE tasks ADD COLUMN estimated_hours REAL DEFAULT 0',
+    'ALTER TABLE tasks ADD COLUMN actual_hours REAL DEFAULT 0',
+    'ALTER TABLE tasks ADD COLUMN progress_percent INTEGER DEFAULT 0',
+    'ALTER TABLE tasks ADD COLUMN checklist_json TEXT DEFAULT "[]"',
   ];
   for (const m of migrations) {
     try {
@@ -348,3 +589,4 @@ export function initDatabase() {
 
 // Auto-run initDatabase on client import
 initDatabase();
+

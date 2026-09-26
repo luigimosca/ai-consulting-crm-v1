@@ -14,6 +14,11 @@ import {
   ShieldCheck,
   Menu,
   X,
+  FileText,
+  Briefcase,
+  FolderKanban,
+  CheckSquare,
+  Files
 } from 'lucide-react';
 import { cn, APP_VERSION } from '@/lib/utils';
 
@@ -22,13 +27,16 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
   const router = useRouter();
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
 
-  const navItems = [
+  const mainNav = [
     {
       label: 'Dashboard',
       href: '/crm',
       icon: LayoutDashboard,
       active: pathname === '/crm',
     },
+  ];
+
+  const commercialNav = [
     {
       label: 'Leads & Pipeline',
       href: '/crm/leads',
@@ -42,12 +50,50 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
       active: pathname === '/crm/lead-gen',
     },
     {
+      label: 'Preventivi',
+      href: '/crm/quotes',
+      icon: FileText,
+      active: pathname.startsWith('/crm/quotes'),
+    },
+  ];
+
+  const operationalNav = [
+    {
+      label: 'Commesse',
+      href: '/crm/commesse',
+      icon: Briefcase,
+      active: pathname.startsWith('/crm/commesse'),
+    },
+    {
+      label: 'Progetti',
+      href: '/crm/projects',
+      icon: FolderKanban,
+      active: pathname.startsWith('/crm/projects'),
+    },
+    {
+      label: 'Compiti & Attività',
+      href: '/crm/tasks',
+      icon: CheckSquare,
+      active: pathname.startsWith('/crm/tasks'),
+    },
+  ];
+
+  const toolsNav = [
+    {
       label: 'Enrichment AI',
       href: '/crm/enrichment',
       icon: Sparkles,
-      active: pathname === '/crm/enrichment',
+      active: pathname.startsWith('/crm/enrichment'),
+    },
+    {
+      label: 'Documenti',
+      href: '/crm/documents',
+      icon: Files,
+      active: pathname.startsWith('/crm/documents'),
     },
   ];
+
+  const allNavItems = [...mainNav, ...commercialNav, ...operationalNav, ...toolsNav];
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -127,42 +173,118 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
               </div>
 
               {/* Navigation Links */}
-              <nav className="p-3 space-y-1">
-                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                  Principale
+              <nav className="p-3 space-y-4 overflow-y-auto max-h-[calc(100vh-160px)]">
+                <div>
+                  <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Principale
+                  </div>
+                  {mainNav.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={closeDrawer}
+                        className={cn(
+                          'flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                          item.active
+                            ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30'
+                            : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/80'
+                        )}
+                      >
+                        <Icon className={cn('h-4 w-4', item.active ? 'text-blue-400' : 'text-slate-400')} />
+                        <span>{item.label}</span>
+                      </Link>
+                    );
+                  })}
                 </div>
-                {navItems.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      onClick={closeDrawer}
-                      className={cn(
-                        'flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium transition-colors',
-                        item.active
-                          ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30'
-                          : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/80'
-                      )}
-                    >
-                      <Icon className={cn('h-4 w-4', item.active ? 'text-blue-400' : 'text-slate-400')} />
-                      <span>{item.label}</span>
-                    </Link>
-                  );
-                })}
 
-                <div className="pt-4 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                  Collegamenti
+                <div>
+                  <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Commerciale
+                  </div>
+                  {commercialNav.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={closeDrawer}
+                        className={cn(
+                          'flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                          item.active
+                            ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30'
+                            : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/80'
+                        )}
+                      >
+                        <Icon className={cn('h-4 w-4', item.active ? 'text-blue-400' : 'text-slate-400')} />
+                        <span>{item.label}</span>
+                      </Link>
+                    );
+                  })}
                 </div>
-                <Link
-                  href="/"
-                  target="_blank"
-                  onClick={closeDrawer}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-100 hover:bg-slate-900/80 transition-colors"
-                >
-                  <Globe className="h-4 w-4 text-slate-400" />
-                  <span>Sito Pubblico & Demo</span>
-                </Link>
+
+                <div>
+                  <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Ciclo Operativo
+                  </div>
+                  {operationalNav.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={closeDrawer}
+                        className={cn(
+                          'flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                          item.active
+                            ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30'
+                            : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/80'
+                        )}
+                      >
+                        <Icon className={cn('h-4 w-4', item.active ? 'text-blue-400' : 'text-slate-400')} />
+                        <span>{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+
+                <div>
+                  <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Strumenti
+                  </div>
+                  {toolsNav.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={closeDrawer}
+                        className={cn(
+                          'flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                          item.active
+                            ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30'
+                            : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/80'
+                        )}
+                      >
+                        <Icon className={cn('h-4 w-4', item.active ? 'text-blue-400' : 'text-slate-400')} />
+                        <span>{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+
+                <div className="pt-2 border-t border-slate-800">
+                  <Link
+                    href="/"
+                    target="_blank"
+                    onClick={closeDrawer}
+                    className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-100 hover:bg-slate-900/80 transition-colors"
+                  >
+                    <Globe className="h-4 w-4 text-slate-400" />
+                    <span>Sito Pubblico & Demo</span>
+                  </Link>
+                </div>
               </nav>
             </div>
 
@@ -206,7 +328,7 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
 
       {/* 3. MOBILE BOTTOM NAVIGATION BAR (md:hidden) */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 border-t border-slate-800 backdrop-blur-md px-2 py-1.5 flex items-center justify-around shadow-lg">
-        {navItems.map((item) => {
+        {allNavItems.slice(0, 4).map((item) => {
           const Icon = item.icon;
           return (
             <Link
@@ -237,9 +359,9 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
 
       {/* 4. DESKTOP PERMANENT SIDEBAR (hidden md:flex) */}
       <aside className="hidden md:flex w-64 border-r border-slate-800 bg-slate-950/90 flex-col justify-between h-screen sticky top-0 backdrop-blur-md shrink-0">
-        <div>
+        <div className="overflow-y-auto max-h-[calc(100vh-100px)]">
           {/* Brand */}
-          <div className="p-6 border-b border-slate-800/80 flex items-center justify-between">
+          <div className="p-5 border-b border-slate-800/80 flex items-center justify-between">
             <Link href="/crm" className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-md shadow-blue-500/20">
                 <Bot className="h-5 w-5 text-white" />
@@ -258,41 +380,114 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
             </Link>
           </div>
 
-          {/* Navigation */}
-          <nav className="p-4 space-y-1.5">
-            <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              Principale
+          {/* Navigation Sections */}
+          <nav className="p-3 space-y-3">
+            <div>
+              <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Principale
+              </div>
+              {mainNav.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={cn(
+                      'flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                      item.active
+                        ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 font-semibold'
+                        : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/80'
+                    )}
+                  >
+                    <Icon className={cn('h-4 w-4', item.active ? 'text-blue-400' : 'text-slate-400')} />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
             </div>
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    'flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-colors',
-                    item.active
-                      ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30'
-                      : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/80'
-                  )}
-                >
-                  <Icon className={cn('h-4 w-4', item.active ? 'text-blue-400' : 'text-slate-400')} />
-                  <span>{item.label}</span>
-                </Link>
-              );
-            })}
 
-            <div className="pt-5 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              Collegamenti
+            <div>
+              <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Commerciale
+              </div>
+              {commercialNav.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={cn(
+                      'flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                      item.active
+                        ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 font-semibold'
+                        : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/80'
+                    )}
+                  >
+                    <Icon className={cn('h-4 w-4', item.active ? 'text-blue-400' : 'text-slate-400')} />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
             </div>
-            <Link
-              href="/"
-              target="_blank"
-              className="flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:text-slate-100 hover:bg-slate-900/80 transition-colors"
-            >
-              <Globe className="h-4 w-4 text-slate-400" />
-              <span>Sito Pubblico & Demo</span>
-            </Link>
+
+            <div>
+              <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Ciclo Operativo
+              </div>
+              {operationalNav.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={cn(
+                      'flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                      item.active
+                        ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 font-semibold'
+                        : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/80'
+                    )}
+                  >
+                    <Icon className={cn('h-4 w-4', item.active ? 'text-blue-400' : 'text-slate-400')} />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+
+            <div>
+              <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Strumenti
+              </div>
+              {toolsNav.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={cn(
+                      'flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                      item.active
+                        ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 font-semibold'
+                        : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/80'
+                    )}
+                  >
+                    <Icon className={cn('h-4 w-4', item.active ? 'text-blue-400' : 'text-slate-400')} />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+
+            <div className="pt-2 border-t border-slate-800/60">
+              <Link
+                href="/"
+                target="_blank"
+                className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-100 hover:bg-slate-900/80 transition-colors"
+              >
+                <Globe className="h-4 w-4 text-slate-400" />
+                <span>Sito Pubblico & Demo</span>
+              </Link>
+            </div>
           </nav>
         </div>
 

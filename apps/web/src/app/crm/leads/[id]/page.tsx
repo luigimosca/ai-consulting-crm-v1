@@ -11,6 +11,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Select } from '@/components/ui/Select';
+import { Input } from '@/components/ui/Input';
 import { formatSector, formatStatus, getStatusBadgeVariant } from '@/lib/utils';
 import { generateOutreachMessage } from '@ai-crm/ai';
 import {
@@ -39,6 +40,11 @@ import {
   ThumbsDown,
   Share2,
   Users,
+  Receipt,
+  Briefcase,
+  FolderKanban,
+  Plus,
+  ArrowRight,
 } from 'lucide-react';
 
 export default function LeadDetailPage({
@@ -60,8 +66,14 @@ export default function LeadDetailPage({
   const [outreachChannel, setOutreachChannel] = useState<'email' | 'whatsapp' | 'call'>('email');
 
   // Navigation tab
-  const [activeTab, setActiveTab] = useState<'overview' | 'audit' | 'reputation' | 'decision-makers'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'audit' | 'reputation' | 'decision-makers' | 'quotes'>('overview');
   const [selectedDecisionMaker, setSelectedDecisionMaker] = useState<DecisionMakerItem | null>(null);
+  const [quotesList, setQuotesList] = useState<any[]>([]);
+  const [isCreatingQuoteModalOpen, setIsCreatingQuoteModalOpen] = useState(false);
+  const [newQuoteTitle, setNewQuoteTitle] = useState('');
+  const [newQuoteValidityDays, setNewQuoteValidityDays] = useState('30');
+  const [newQuoteNotes, setNewQuoteNotes] = useState('');
+  const [isSubmittingQuote, setIsSubmittingQuote] = useState(false);
 
   // Inline Website & Contacts Editor
   const [isEditingWebsite, setIsEditingWebsite] = useState(false);
@@ -117,21 +129,51 @@ export default function LeadDetailPage({
       }
 
       // Carica recensioni verificate
+      // Carica preventivi collegati
       try {
-        const revRes = await fetch(`/api/leads/${id}/reviews`);
-        if (revRes.ok) {
-          const revData = await revRes.json();
-          if (revData.reviews) {
-            setReviewRecords(revData.reviews);
-          }
+        const qRes = await fetch(`/api/quotes?leadId=${id}&t=${Date.now()}`);
+        if (qRes.ok) {
+          const qData = await qRes.json();
+          setQuotesList(qData.quotes || []);
         }
       } catch (err) {
-        console.warn('Errore caricamento recensioni:', err);
+        console.warn('Errore caricamento preventivi:', err);
       }
     } catch (err) {
       console.error('Error loading lead detail:', err);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleCreateQuoteForLead = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newQuoteTitle.trim()) return;
+    setIsSubmittingQuote(true);
+    try {
+      const res = await fetch('/api/quotes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          leadId: id,
+          title: newQuoteTitle.trim(),
+          validityDays: parseInt(newQuoteValidityDays, 10) || 30,
+          paymentTerms: '50% acconto, 50% a consegna/collaudo',
+          notes: newQuoteNotes.trim() || undefined,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setIsCreatingQuoteModalOpen(false);
+        setNewQuoteTitle('');
+        setNewQuoteNotes('');
+        router.push(`/crm/quotes/${data.quote.id}`);
+      }
+    } catch (err) {
+      console.error('Error creating quote:', err);
+    } finally {
+      setIsSubmittingQuote(false);
     }
   };
 
@@ -542,6 +584,19 @@ export default function LeadDetailPage({
 
         <div className="flex flex-wrap items-center gap-2">
           <Button
+            variant="primary"
+            size="sm"
+            onClick={() => {
+              setNewQuoteTitle(`Proposta Consulenza AI & Digital Growth - ${lead.companyName}`);
+              setIsCreatingQuoteModalOpen(true);
+            }}
+            className="gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs"
+          >
+            <Receipt className="h-3.5 w-3.5" />
+            <span>Crea Preventivo</span>
+          </Button>
+
+          <Button
             variant="glow"
             size="sm"
             onClick={() => handleRunEnrichment()}
@@ -939,6 +994,24 @@ export default function LeadDetailPage({
         >
           <Users className="h-4 w-4 text-indigo-400" />
           <span>Decisori & Organigramma</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('quotes')}
+          className={`px-4 py-2.5 rounded-t-lg font-semibold transition-colors flex items-center gap-2 ${
+            activeTab === 'quotes'
+              ? 'bg-slate-900 text-white border-t-2 border-indigo-500'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900/40'
+          }`}
+        >
+          <Receipt className="h-4 w-4 text-indigo-400" />
+          <span>Preventivi & Ciclo Operativo</span>
+          {quotesList.length > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-900 text-indigo-200 font-bold">
+              {quotesList.length}
+            </span>
+          )}
         </button>
       </div>
 
@@ -1466,6 +1539,203 @@ export default function LeadDetailPage({
           }}
         />
       )}
+
+      {/* TAB 5: PREVENTIVI & CICLO OPERATIVO */}
+      {activeTab === 'quotes' && (
+        <div className="space-y-6">
+          {/* Visual Lifecycle Stepper */}
+          <Card className="bg-slate-900/90 border-slate-800 p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-2">
+                <Receipt className="h-4 w-4" />
+                Ciclo Operativo dell&apos;Agenzia
+              </span>
+              <span className="text-[11px] text-slate-400">
+                Flusso completo: Lead &rarr; Preventivo &rarr; Approvazione &rarr; Commessa &rarr; Progetto &rarr; Attività &rarr; Gantt
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 text-center text-xs">
+              <div className="p-2.5 rounded-lg bg-blue-950/60 border border-blue-600/40 text-blue-300 font-medium">
+                <div className="text-[10px] text-blue-400 font-bold uppercase">1. Lead</div>
+                <div className="truncate text-white text-xs mt-0.5">{lead.companyName}</div>
+              </div>
+              <div className={`p-2.5 rounded-lg border font-medium ${quotesList.length > 0 ? 'bg-indigo-950/60 border-indigo-600/40 text-indigo-300' : 'bg-slate-950 border-slate-800 text-slate-500'}`}>
+                <div className="text-[10px] uppercase font-bold">2. Preventivo</div>
+                <div className="text-xs mt-0.5">{quotesList.length} Creati</div>
+              </div>
+              <div className={`p-2.5 rounded-lg border font-medium ${quotesList.some((q) => q.status === 'approvato_interno' || q.status === 'inviato' || q.status === 'accettato_cliente') ? 'bg-amber-950/60 border-amber-600/40 text-amber-300' : 'bg-slate-950 border-slate-800 text-slate-500'}`}>
+                <div className="text-[10px] uppercase font-bold">3. Approvazione</div>
+                <div className="text-xs mt-0.5">{quotesList.filter((q) => q.status === 'approvato_interno' || q.status === 'accettato_cliente').length} Approvati</div>
+              </div>
+              <div className={`p-2.5 rounded-lg border font-medium ${quotesList.some((q) => q.status === 'accettato_cliente' || q.convertedOrderId) ? 'bg-emerald-950/60 border-emerald-600/40 text-emerald-300' : 'bg-slate-950 border-slate-800 text-slate-500'}`}>
+                <div className="text-[10px] uppercase font-bold">4. Commessa</div>
+                <div className="text-xs mt-0.5">{quotesList.filter((q) => q.convertedOrderId).length} Attive</div>
+              </div>
+              <div className={`p-2.5 rounded-lg border font-medium ${quotesList.some((q) => q.convertedOrderId) ? 'bg-cyan-950/60 border-cyan-600/40 text-cyan-300' : 'bg-slate-950 border-slate-800 text-slate-500'}`}>
+                <div className="text-[10px] uppercase font-bold">5. Progetto</div>
+                <div className="text-xs mt-0.5">Operativo</div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-500 font-medium">
+                <div className="text-[10px] uppercase font-bold">6. Attività</div>
+                <div className="text-xs mt-0.5">Task & DAG</div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-500 font-medium">
+                <div className="text-[10px] uppercase font-bold">7. Gantt</div>
+                <div className="text-xs mt-0.5">Timeline</div>
+              </div>
+            </div>
+          </Card>
+
+          {/* Quotes Header & Action */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-base font-bold text-white">Preventivi Collegati a {lead.companyName}</h3>
+              <p className="text-xs text-slate-400">
+                Proposte commerciali, versioning immutabile con snapshot, workflow approvazione e conversione a commessa.
+              </p>
+            </div>
+
+            <Button
+              size="sm"
+              onClick={() => {
+                setNewQuoteTitle(`Proposta Consulenza AI & Digital Growth - ${lead.companyName}`);
+                setIsCreatingQuoteModalOpen(true);
+              }}
+              className="text-xs gap-1.5 bg-indigo-600 hover:bg-indigo-500"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Nuovo Preventivo</span>
+            </Button>
+          </div>
+
+          {/* Quotes Table */}
+          <Card className="bg-slate-950 border-slate-800 shadow-xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800 bg-slate-900/60 font-semibold text-slate-400 uppercase tracking-wider">
+                    <th className="py-3 px-4">Codice</th>
+                    <th className="py-3 px-4">Titolo Proposta</th>
+                    <th className="py-3 px-4">Stato</th>
+                    <th className="py-3 px-4">Totale (IVA incl.)</th>
+                    <th className="py-3 px-4">Data Emissione</th>
+                    <th className="py-3 px-4">Commessa Collegata</th>
+                    <th className="py-3 px-4 text-right">Azioni</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-850">
+                  {quotesList.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-slate-400">
+                        Nessun preventivo creato per questo lead. Clicca &ldquo;Nuovo Preventivo&rdquo; per generarne uno.
+                      </td>
+                    </tr>
+                  ) : (
+                    quotesList.map((q) => (
+                      <tr key={q.id} className="hover:bg-slate-900/40 transition-colors">
+                        <td className="py-3 px-4 font-mono font-bold text-indigo-400">
+                          {q.code} (v{q.currentVersionNumber})
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="font-semibold text-slate-200">{q.title}</div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="capitalize">{q.status?.replace('_', ' ')}</span>
+                        </td>
+                        <td className="py-3 px-4 font-mono font-bold text-emerald-400">
+                          €{((q.totalAmountCents || 0) / 100).toLocaleString('it-IT', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-3 px-4 font-mono text-slate-400">
+                          {q.issueDate || q.createdAt?.slice(0, 10)}
+                        </td>
+                        <td className="py-3 px-4">
+                          {q.convertedOrderId ? (
+                            <Link href={`/crm/commesse/${q.convertedOrderId}`} className="text-blue-400 hover:underline flex items-center gap-1 font-medium">
+                              <Briefcase className="h-3 w-3" />
+                              <span>Vedi Commessa</span>
+                            </Link>
+                          ) : (
+                            <span className="text-slate-500">Non convertito</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Link href={`/crm/quotes/${q.id}/preview`}>
+                              <Button size="sm" variant="ghost" className="text-xs h-7 text-slate-400 hover:text-white">
+                                PDF
+                              </Button>
+                            </Link>
+                            <Link href={`/crm/quotes/${q.id}`}>
+                              <Button size="sm" variant="outline" className="text-xs h-7 gap-1">
+                                <span>Apri</span>
+                                <ArrowRight className="h-3 w-3" />
+                              </Button>
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* MODAL: CREATE QUOTE */}
+      {isCreatingQuoteModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-slate-950 border border-slate-800 rounded-xl p-6 max-w-md w-full space-y-4">
+            <h3 className="text-base font-bold text-white">Crea Nuovo Preventivo</h3>
+
+            <form onSubmit={handleCreateQuoteForLead} className="space-y-4 text-xs">
+              <div className="space-y-1">
+                <label className="text-slate-400 block font-medium">Titolo Proposta *</label>
+                <Input
+                  required
+                  value={newQuoteTitle}
+                  onChange={(e) => setNewQuoteTitle(e.target.value)}
+                  placeholder="Es: Consulenza Strategica AI & Sviluppo Funnel"
+                  className="bg-slate-900 border-slate-800"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-400 block font-medium">Validità Offerta (giorni)</label>
+                <Input
+                  type="number"
+                  value={newQuoteValidityDays}
+                  onChange={(e) => setNewQuoteValidityDays(e.target.value)}
+                  className="bg-slate-900 border-slate-800"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-400 block font-medium">Note / Condizioni Iniziali</label>
+                <textarea
+                  rows={3}
+                  value={newQuoteNotes}
+                  onChange={(e) => setNewQuoteNotes(e.target.value)}
+                  placeholder="Condizioni commerciali, modalità di erogazione, vincoli..."
+                  className="w-full rounded-lg bg-slate-900 border border-slate-800 p-2 text-white placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                <Button type="button" variant="ghost" onClick={() => setIsCreatingQuoteModalOpen(false)}>
+                  Annulla
+                </Button>
+                <Button type="submit" isLoading={isSubmittingQuote} className="bg-indigo-600 hover:bg-indigo-500">
+                  Crea e Compila Righe
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
