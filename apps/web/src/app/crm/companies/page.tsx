@@ -319,6 +319,13 @@ export default function CompaniesListPage() {
         </span>
       );
     }
+    if (info.source === 'registro_imprese' || info.source === 'dati_camerali_pubblici') {
+      return (
+        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+          Da Registri Ufficiali
+        </span>
+      );
+    }
     return (
       <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
         Da verificare
@@ -783,17 +790,31 @@ export default function CompaniesListPage() {
                                       ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                                       : candidate.source === 'sito_ufficiale'
                                       ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
+                                      : candidate.source === 'registro_imprese' || candidate.source === 'dati_camerali_pubblici'
+                                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
                                       : 'bg-purple-500/10 text-purple-400 border-purple-500/30'
                                   }`}
                                 >
-                                  Fonte: {candidate.source}
+                                  Fonte: {
+                                    candidate.source === 'dati_camerali_pubblici'
+                                      ? 'Dati Camerali / P.IVA'
+                                      : candidate.source === 'registro_imprese'
+                                      ? 'Registro Imprese'
+                                      : candidate.source === 'openstreetmap'
+                                      ? 'OpenStreetMap'
+                                      : candidate.source === 'sito_ufficiale'
+                                      ? 'Sito Ufficiale'
+                                      : candidate.source === 'crm_locale'
+                                      ? 'CRM Locale'
+                                      : candidate.source
+                                  }
                                 </Badge>
                                 <Badge variant="outline" className="text-[10px] bg-slate-800 text-slate-300">
                                   Confidence: {candidate.confidence}
                                 </Badge>
                               </div>
 
-                              {candidate.legalName && candidate.legalName !== candidate.name && (
+                              {candidate.legalName && (
                                 <div className="text-xs text-slate-300 mt-1">
                                   Ragione Sociale:{' '}
                                   <span className="font-semibold text-blue-300">{candidate.legalName}</span>

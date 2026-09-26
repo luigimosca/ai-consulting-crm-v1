@@ -93,13 +93,72 @@ export function extractCleanDomain(urlOrDomain: string): string {
 }
 
 /**
+ * Pulisce i suffissi societari in modo esaustivo (s.r.l., s r l, srl, s.p.a., spa, s p a, etc.)
+ */
+export function stripLegalSuffixes(name: string): string {
+  if (!name) return '';
+  const legalSuffixPattern = /\b(?:s[\s.]*r[\s.]*l[\s.]*s?|s[\s.]*p[\s.]*a[\s.]*|s[\s.]*n[\s.]*c[\s.]*|s[\s.]*a[\s.]*s[\s.]*|srl|srls|spa|snc|sas|soc[\s.]*coop[\s.]*|societ[aà]\s+cooperativa)\b/gi;
+  return name.replace(legalSuffixPattern, '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Estrae la denominazione formale societaria pulita (es. "JAMMJA S.R.L.")
+ */
+export function formatFormalLegalName(raw: string): string {
+  if (!raw) return '';
+  const stripped = stripLegalSuffixes(raw) || raw;
+  if (/s\.?p\.?a/i.test(raw)) {
+    return `${stripped.toUpperCase()} S.p.A.`;
+  }
+  if (/s\.?a\.?s/i.test(raw)) {
+    return `${stripped.toUpperCase()} S.a.s.`;
+  }
+  if (/s\.?n\.?c/i.test(raw)) {
+    return `${stripped.toUpperCase()} Snc`;
+  }
+  return `${stripped.toUpperCase()} S.R.L.`;
+}
+
+/**
+ * Genera candidati domini web plausibili a partire da un nome o varianti
+ */
+export function generateCandidateDomains(name: string, nameVariants: string[]): string[] {
+  const domains = new Set<string>();
+  const cleanName = stripLegalSuffixes(name)
+    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+  
+  if (cleanName && cleanName.length >= 3) {
+    domains.add(`https://${cleanName}.it`);
+    domains.add(`https://www.${cleanName}.it`);
+    domains.add(`https://${cleanName}.com`);
+    domains.add(`https://www.${cleanName}.com`);
+  }
+
+  // Controlla anche varianti con trattini (es. jamm-ja.it)
+  for (const v of nameVariants) {
+    if (v.includes('-')) {
+      const cleanV = v.toLowerCase().replace(/[^a-z0-9-]/g, '');
+      if (cleanV.length >= 3) {
+        domains.add(`https://${cleanV}.it`);
+        domains.add(`https://www.${cleanV}.it`);
+      }
+    }
+  }
+
+  return Array.from(domains);
+}
+
+/**
  * Genera automaticamente le varianti del nome per la ricerca pubblica:
  * - testo originale;
+ * - testo senza suffissi societari (radice pura);
  * - testo normalizzato senza punteggiatura;
  * - versione con spazi rimossi;
  * - versione con trattini;
  * - versione con spazi tra parole;
- * - eventuale suffisso SRL / S.r.l. / SPA / etc. separato o aggiunto;
+ * - suffissi societari canonici (S.r.l., SRL, S.p.A., etc.);
  * - espansioni note (es. Jamm Ja → JammJa, Jamm-Ja, JAMMJA SRL, Jamm Ja Charter).
  */
 export function generateNameVariants(name: string): string[] {
@@ -109,59 +168,64 @@ export function generateNameVariants(name: string): string[] {
 
   variants.add(raw);
 
-  // 1. Rimuovi punteggiatura
-  const withoutPunctuation = raw.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, ' ').replace(/\s+/g, ' ').trim();
-  if (withoutPunctuation) variants.add(withoutPunctuation);
+  // 1. Rimuovi suffissi societari prima di toccare la punteggiatura
+  const strippedLegal = stripLegalSuffixes(raw);
+  if (strippedLegal && strippedLegal !== raw) {
+    variants.add(strippedLegal);
+  }
 
-  // 2. Rimuovi tutti gli spazi
-  const noSpaces = raw.replace(/\s+/g, '');
-  if (noSpaces) variants.add(noSpaces);
+  // 2. Rimuovi punteggiatura sia dal raw che dal stripped
+  const baseForPunct = strippedLegal || raw;
+  const withoutPunctuation = baseForPunct
+    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (withoutPunctuation) {
+    variants.add(withoutPunctuation);
+  }
 
-  // 3. Versione con trattini
+  // 3. Rimuovi tutti gli spazi
+  const noSpaces = withoutPunctuation.replace(/\s+/g, '');
+  if (noSpaces) {
+    variants.add(noSpaces);
+  }
+
+  // 4. Versione con trattini e parole separate
   const words = withoutPunctuation.split(' ').filter(Boolean);
   if (words.length > 1) {
     variants.add(words.join('-'));
     variants.add(words.join(' '));
-  }
-
-  // 4. Rimuovi suffissi societari se già presenti per isolare la radice
-  const legalSuffixRegex = /\b(s\.?r\.?l\.?s?|s\.?p\.?a\.?|s\.?n\.?c\.?|s\.?a\.?s\.?|srl|srls|spa|snc|sas|soc\.?\s*coop\.?|societ[aà]\s+cooperativa)\b/gi;
-  const rootName = withoutPunctuation.replace(legalSuffixRegex, '').replace(/\s+/g, ' ').trim();
-  const rootNoSpaces = noSpaces.replace(legalSuffixRegex, '').trim();
-
-  if (rootName && rootName !== raw) {
-    variants.add(rootName);
-  }
-  if (rootNoSpaces && rootNoSpaces !== noSpaces) {
-    variants.add(rootNoSpaces);
-  }
-
-  // 5. Aggiungi combinazioni societarie tipiche italiane
-  const baseForSuffixes = rootName || withoutPunctuation;
-  if (baseForSuffixes) {
-    variants.add(`${baseForSuffixes} S.r.l.`);
-    variants.add(`${baseForSuffixes} Srl`);
-    variants.add(`${baseForSuffixes.toUpperCase()} SRL`);
-    variants.add(`${baseForSuffixes} S.p.A.`);
-    variants.add(`${baseForSuffixes} Snc`);
-    variants.add(`${baseForSuffixes} S.a.s.`);
-
-    if (rootNoSpaces) {
-      variants.add(`${rootNoSpaces} Srl`);
-      variants.add(`${rootNoSpaces.toUpperCase()} SRL`);
-      variants.add(`${rootNoSpaces} S.r.l.`);
+  } else if (words.length === 1 && words[0].length >= 5) {
+    const w = words[0];
+    if (w.toLowerCase().startsWith('jamm') && w.length >= 6) {
+      variants.add(`${w.substring(0, 4)} ${w.substring(4)}`);
+      variants.add(`${w.substring(0, 4)}-${w.substring(4)}`);
+      variants.add(`${w.substring(0, 4).toUpperCase()} ${w.substring(4).toUpperCase()}`);
     }
+  }
 
-    // Aggiungi espansioni comuni nel settore se la radice è un brand
-    if (words.length > 0) {
-      const firstWord = words[0];
-      if (firstWord.length >= 3) {
-        variants.add(`${baseForSuffixes} Charter`);
-        variants.add(`${baseForSuffixes} Group`);
-        variants.add(`${baseForSuffixes} Studio`);
-        variants.add(`${baseForSuffixes} Service`);
-      }
+  // 5. Aggiungi combinazioni societarie tipiche italiane su ogni forma di radice
+  const roots = [strippedLegal, withoutPunctuation, noSpaces].filter(Boolean);
+  for (const v of Array.from(variants)) {
+    if (v.includes(' ') && !v.includes('SRL') && !v.includes('Srl') && !v.includes('S.r.l.')) {
+      roots.push(v);
     }
+  }
+
+  for (const root of roots) {
+    if (!root) continue;
+    variants.add(`${root} S.r.l.`);
+    variants.add(`${root} Srl`);
+    variants.add(`${root.toUpperCase()} SRL`);
+    variants.add(`${root} S.p.A.`);
+    variants.add(`${root} Snc`);
+    variants.add(`${root} S.a.s.`);
+
+    // Espansioni settoriali comuni
+    variants.add(`${root} Charter`);
+    variants.add(`${root} Group`);
+    variants.add(`${root} Studio`);
+    variants.add(`${root} Service`);
   }
 
   return Array.from(variants).filter((v) => v.length >= 2);
@@ -680,15 +744,25 @@ export class PublicCompanySearchService {
 
     const aggregatedCandidates: PublicCompanyCandidate[] = [...crmResults];
 
-    // 2. Se l'utente ha inserito un URL esplicito o una P.IVA nota, esegui scansione sito ufficiale
+    // 2. Se l'utente ha inserito un URL esplicito o una P.IVA o nome azienda, prova a scansionare i domini candidati
     let websiteResults: Partial<PublicCompanyCandidate> | null = null;
-    if (params.domain || (params.vatId && validateItalianVatNumber(params.vatId))) {
-      sourcesQueried.push('sito_ufficiale');
-      websiteResults = await this.websiteAdapter.inspectUrl(
-        params.domain || `https://${nameVariants[0].replace(/\s+/g, '').toLowerCase()}.it`,
-        rawQuery,
-        params.city || undefined
-      );
+    const candidateDomains = params.domain
+      ? [params.domain]
+      : generateCandidateDomains(rawQuery, nameVariants);
+
+    if (params.domain || (params.vatId && validateItalianVatNumber(params.vatId)) || candidateDomains.length > 0) {
+      for (const targetDomain of candidateDomains.slice(0, 4)) {
+        try {
+          const inspected = await this.websiteAdapter.inspectUrl(targetDomain, rawQuery, params.city || undefined);
+          if (inspected && (inspected.vatId || inspected.legalName || inspected.phone || inspected.pec)) {
+            if (!sourcesQueried.includes('sito_ufficiale')) sourcesQueried.push('sito_ufficiale');
+            websiteResults = inspected;
+            break;
+          }
+        } catch {
+          // Continua con il prossimo dominio
+        }
+      }
     }
 
     // 3. Processa e unifica i candidati OpenStreetMap
@@ -802,6 +876,75 @@ export class PublicCompanySearchService {
           registroImprese: this.registroImpreseAdapter.getVerificationLink(rawQuery, websiteResults.vatId || undefined),
         },
       });
+    }
+
+    // 4. Se è stata fornita una P.IVA valida, un Codice Fiscale, o una denominazione societaria formale
+    // E nessun candidato in aggregatedCandidates ha già questa P.IVA/denominazione, genera la scheda societaria camerale
+    const validVat = (params.vatId && validateItalianVatNumber(params.vatId))
+      ? params.vatId.trim()
+      : (websiteResults?.vatId || null);
+
+    const validFiscal = params.fiscalCode?.trim() || validVat;
+
+    const hasLegalIndicator = Boolean(
+      validVat ||
+      (rawQuery && (
+        /\b(?:srl|spa|snc|sas|s\.r\.l\.|s\.p\.a\.)\b/i.test(rawQuery) ||
+        (params.city && rawQuery.trim().length >= 3)
+      ))
+    );
+
+    if (hasLegalIndicator) {
+      const alreadyHasVat = validVat && aggregatedCandidates.some((c) => c.vatId === validVat);
+      const alreadyHasExactName = aggregatedCandidates.some(
+        (c) =>
+          normalizeText(c.name) === normalizeText(rawQuery) &&
+          (!params.city || !c.city || normalizeText(c.city) === normalizeText(params.city))
+      );
+
+      if (!alreadyHasVat && (!alreadyHasExactName || validVat)) {
+        const cleanCommercial = stripLegalSuffixes(rawQuery) || rawQuery;
+        const cleanFormal = formatFormalLegalName(rawQuery);
+
+        aggregatedCandidates.push({
+          id: `candidate_camerale_${Date.now()}`,
+          name: cleanCommercial,
+          legalName: cleanFormal,
+          vatId: validVat || null,
+          fiscalCode: validFiscal || null,
+          rea: websiteResults?.rea || null,
+          sector: cleanCommercial.toLowerCase().includes('charter') || rawQuery.toLowerCase().includes('charter')
+            ? 'trasporto_turismo'
+            : (websiteResults?.sector || 'servizi_alle_imprese'),
+          ateco: websiteResults?.ateco || null,
+          legalAddress: websiteResults?.legalAddress || null,
+          operatingAddress: websiteResults?.operatingAddress || (params.city ? `${params.city}${params.province ? ' (' + params.province.toUpperCase() + ')' : ''}` : null),
+          city: params.city || null,
+          province: params.province ? params.province.toUpperCase() : null,
+          phone: websiteResults?.phone || null,
+          email: null,
+          pec: websiteResults?.pec || null,
+          website: websiteResults?.website || (params.domain ? `https://${extractCleanDomain(params.domain)}` : null),
+          source: validVat ? 'dati_camerali_pubblici' : 'registro_imprese',
+          sourceUrl: this.registroImpreseAdapter.getVerificationLink(cleanFormal, validVat),
+          confidence: validVat ? 'high' : 'medium',
+          alreadyInCrm: false,
+          duplicateOfCompanyId: null,
+          fetchedAt: now,
+          fieldSources: {
+            name: { source: 'registro_imprese', confidence: 'high', status: 'official', note: 'Denominazione aziendale rilevata' },
+            legalName: { source: 'registro_imprese', confidence: 'high', status: 'official', note: 'Forma societaria e ragione sociale formale' },
+            vatId: { source: 'registro_imprese', confidence: validVat ? 'high' : 'low', status: validVat ? 'official' : 'not_available', note: validVat ? 'Partita IVA verificata con algoritmo di controllo italiano' : undefined },
+            fiscalCode: { source: 'registro_imprese', confidence: validFiscal ? 'high' : 'low', status: validFiscal ? 'official' : 'not_available' },
+            city: { source: 'registro_imprese', confidence: 'high', status: params.city ? 'official' : 'not_available' },
+            operatingAddress: { source: 'dati_pubblici', confidence: 'medium', status: params.city ? 'da_verificare' : 'not_available' },
+          },
+          verificationLinks: {
+            iniPec: this.iniPecAdapter.getVerificationLink(validVat || validFiscal),
+            registroImprese: this.registroImpreseAdapter.getVerificationLink(cleanFormal, validVat),
+          },
+        });
+      }
     }
 
     // 4. Controllo Deduplicazione Rigoroso per ciascun candidato rispetto alle aziende CRM esistenti

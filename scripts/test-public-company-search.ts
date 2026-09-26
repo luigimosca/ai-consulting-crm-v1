@@ -157,7 +157,7 @@ async function runTests() {
   assert(dupByNameCity?.alreadyInCrm === true, 'Rileva duplicato per Nome + Città coincidente');
 
   // ---------------------------------------------------------------------------
-  // TEST 6: Caso di Studio Pompei: Jamm Ja
+  // TEST 6: Caso di Studio Pompei: Jamm Ja & Jammja S.r.l.
   // ---------------------------------------------------------------------------
   console.log('\n--- TEST 6: Caso di Studio "Jamm Ja" Pompei ---');
   const pompeiSearch = await searchService.searchCandidates({
@@ -171,6 +171,25 @@ async function runTests() {
   assert(pompeiSearch.nameVariants.length >= 4, 'Genera almeno 4 varianti di ricerca per Jamm Ja');
   assert(pompeiSearch.sourcesQueried.includes('openstreetmap'), 'Interroga OpenStreetMap');
   assert(pompeiSearch.sourcesQueried.includes('crm_locale'), 'Interroga CRM Locale');
+
+  // Test specifico con "jammja S.r.l." + P.IVA 10391601217
+  const jammjaSrlVariants = generateNameVariants('jammja S.r.l.');
+  assert(!jammjaSrlVariants.some((v) => v.includes('S r l') || v.includes('S-r-l')), 'Rimuove correttamente il suffisso "S.r.l." senza generare "S r l"');
+  assert(jammjaSrlVariants.some((v) => v.toUpperCase().includes('JAMMJA') || v.toUpperCase().includes('JAMM JA')), 'Genera radice e varianti per "jammja S.r.l."');
+
+  const jammjaSrlSearch = await searchService.searchCandidates({
+    q: 'jammja S.r.l.',
+    city: 'pompei',
+    vatId: '10391601217',
+    existingCompanies: crmCompanies,
+    existingLeads: crmLeads,
+  });
+  assert(jammjaSrlSearch.candidates.length >= 1, 'Restituisce scheda societaria per "jammja S.r.l." con P.IVA 10391601217');
+  const jammjaCandidate = jammjaSrlSearch.candidates.find((c) => c.vatId === '10391601217');
+  assert(jammjaCandidate !== undefined, 'Candidato contiene P.IVA 10391601217');
+  assert(jammjaCandidate?.legalName?.toUpperCase().includes('JAMMJA') ?? false, 'Candidato contiene ragione sociale formale');
+
+
 
   // ---------------------------------------------------------------------------
   // TEST 7: Importazione Solo dopo Conferma Esplicita
