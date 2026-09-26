@@ -90,6 +90,12 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
       icon: Workflow,
       active: pathname.startsWith('/crm/process-templates'),
     },
+    {
+      label: 'Team & Permessi',
+      href: '/crm/team',
+      icon: ShieldCheck,
+      active: pathname.startsWith('/crm/team'),
+    },
   ];
 
   const toolsNav = [

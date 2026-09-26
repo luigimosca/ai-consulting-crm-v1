@@ -6,8 +6,12 @@ export const users = sqliteTable('users', {
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
   role: text('role', { enum: ['admin', 'operator'] }).notNull().default('operator'),
+  status: text('status', { enum: ['active', 'inactive'] }).notNull().default('active'),
   avatar: text('avatar'),
+  invitedBy: text('invited_by'),
+  activatedAt: text('activated_at'),
   createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at'),
 });
 
 export const sessions = sqliteTable('sessions', {
@@ -828,11 +832,72 @@ export const requestComments = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// Team & Permessi (Project Members & User Invitations)
+// ---------------------------------------------------------------------------
+
+export const projectMembers = sqliteTable(
+  'project_members',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    projectRole: text('project_role', {
+      enum: ['manager', 'editor', 'contributor', 'viewer'],
+    })
+      .notNull()
+      .default('contributor'),
+    status: text('status', { enum: ['active', 'inactive'] })
+      .notNull()
+      .default('active'),
+    joinedAt: text('joined_at').notNull(),
+    addedBy: text('added_by').references(() => users.id),
+  },
+  (table) => ({
+    projectIdIdx: index('project_members_project_id_idx').on(table.projectId),
+    userIdIdx: index('project_members_user_id_idx').on(table.userId),
+    projectUserIdx: index('project_members_proj_user_idx').on(table.projectId, table.userId),
+  })
+);
+
+export const userInvitations = sqliteTable(
+  'user_invitations',
+  {
+    id: text('id').primaryKey(),
+    email: text('email').notNull(),
+    name: text('name').notNull(),
+    role: text('role', { enum: ['admin', 'operator'] })
+      .notNull()
+      .default('operator'),
+    token: text('token').notNull().unique(),
+    expiresAt: text('expires_at').notNull(),
+    usedAt: text('used_at'),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => ({
+    tokenIdx: index('user_invitations_token_idx').on(table.token),
+    emailIdx: index('user_invitations_email_idx').on(table.email),
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Type Exports
 // ---------------------------------------------------------------------------
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+
+export type ProjectMember = typeof projectMembers.$inferSelect;
+export type NewProjectMember = typeof projectMembers.$inferInsert;
+
+export type UserInvitation = typeof userInvitations.$inferSelect;
+export type NewUserInvitation = typeof userInvitations.$inferInsert;
 
 export type Lead = typeof leads.$inferSelect;
 export type NewLead = typeof leads.$inferInsert;
@@ -929,4 +994,5 @@ export type NewClientRequestTaskLink = typeof clientRequestTaskLinks.$inferInser
 
 export type RequestComment = typeof requestComments.$inferSelect;
 export type NewRequestComment = typeof requestComments.$inferInsert;
+
 

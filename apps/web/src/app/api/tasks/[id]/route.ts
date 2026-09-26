@@ -9,7 +9,13 @@ import {
   users,
 } from '@ai-crm/db';
 import { eq, desc, and } from 'drizzle-orm';
-import { requireAuth } from '@/lib/auth';
+import {
+  requireAuth,
+  checkUserProjectAccess,
+  canUserEditTask,
+  canUserManageProjectContent,
+} from '@/lib/auth';
+import { getProjectMembers } from '@/lib/team-service';
 import { recalculateProjectProgress, isTaskBlocked } from '@/lib/task-graph';
 import { logActivity } from '@/lib/activity-logger';
 
@@ -26,6 +32,10 @@ export async function GET(
     const task = db.select().from(tasks).where(eq(tasks.id, id)).get();
     if (!task) {
       return NextResponse.json({ error: 'Attività non trovata' }, { status: 404 });
+    }
+
+    if (!checkUserProjectAccess(user, task.projectId, 'viewer')) {
+      return NextResponse.json({ error: 'Accesso negato al progetto' }, { status: 403 });
     }
 
     const project = db.select().from(projects).where(eq(projects.id, task.projectId)).get();
@@ -99,6 +109,9 @@ export async function GET(
     if (error?.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 });
     }
+    if (error?.message === 'FORBIDDEN') {
+      return NextResponse.json({ error: 'Accesso negato' }, { status: 403 });
+    }
     return NextResponse.json({ error: error?.message || 'Errore recupero attività' }, { status: 500 });
   }
 }
@@ -115,6 +128,37 @@ export async function PATCH(
     const task = db.select().from(tasks).where(eq(tasks.id, id)).get();
     if (!task) {
       return NextResponse.json({ error: 'Attività non trovata' }, { status: 404 });
+    }
+
+    // Check if user is authorized to edit this task (Admin, Manager, Editor, or Contributor assigned to this task)
+    if (!canUserEditTask(user, id)) {
+      return NextResponse.json(
+        { error: 'Accesso negato: non sei autorizzato a modificare questa attività' },
+        { status: 403 }
+      );
+    }
+
+    // If attempting to change task assignments, must be Manager/Editor
+    if (body.assignedUserIds !== undefined) {
+      if (!canUserManageProjectContent(user, task.projectId)) {
+        return NextResponse.json(
+          { error: 'Accesso negato: solo manager ed editor possono riassegnare attività' },
+          { status: 403 }
+        );
+      }
+
+      if (Array.isArray(body.assignedUserIds) && body.assignedUserIds.length > 0) {
+        const projectMembersList = getProjectMembers(task.projectId);
+        const memberIds = new Set(projectMembersList.map((m) => m.userId));
+        for (const uid of body.assignedUserIds) {
+          if (!memberIds.has(uid)) {
+            return NextResponse.json(
+              { error: `L'utente selezionato (${uid}) non fa parte del team di questo progetto` },
+              { status: 400 }
+            );
+          }
+        }
+      }
     }
 
     const now = new Date().toISOString();
@@ -190,6 +234,9 @@ export async function PATCH(
     if (error?.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 });
     }
+    if (error?.message === 'FORBIDDEN') {
+      return NextResponse.json({ error: 'Accesso negato' }, { status: 403 });
+    }
     return NextResponse.json({ error: error?.message || 'Errore aggiornamento attività' }, { status: 500 });
   }
 }
@@ -205,6 +252,14 @@ export async function DELETE(
     const task = db.select().from(tasks).where(eq(tasks.id, id)).get();
     if (!task) {
       return NextResponse.json({ error: 'Attività non trovata' }, { status: 404 });
+    }
+
+    // Only Manager or Editor can delete tasks
+    if (!canUserManageProjectContent(user, task.projectId)) {
+      return NextResponse.json(
+        { error: 'Accesso negato: solo manager ed editor possono eliminare attività' },
+        { status: 403 }
+      );
     }
 
     // Delete assignments & dependencies
@@ -232,6 +287,9 @@ export async function DELETE(
   } catch (error: any) {
     if (error?.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 });
+    }
+    if (error?.message === 'FORBIDDEN') {
+      return NextResponse.json({ error: 'Accesso negato' }, { status: 403 });
     }
     return NextResponse.json({ error: error?.message || 'Errore eliminazione attività' }, { status: 500 });
   }

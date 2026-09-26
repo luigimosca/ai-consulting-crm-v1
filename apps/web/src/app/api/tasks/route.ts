@@ -9,7 +9,8 @@ import {
   users,
 } from '@ai-crm/db';
 import { eq, desc, and, or } from 'drizzle-orm';
-import { requireAuth } from '@/lib/auth';
+import { requireAuth, canUserManageProjectContent, checkUserProjectAccess } from '@/lib/auth';
+import { getProjectMembers } from '@/lib/team-service';
 import { recalculateProjectProgress, isTaskBlocked, isTaskBlockedByClient } from '@/lib/task-graph';
 import { logActivity } from '@/lib/activity-logger';
 
@@ -26,6 +27,10 @@ export async function GET(request: Request) {
     const q = searchParams.get('q');
     const isOverdueParam = searchParams.get('isOverdue');
     const isBlockedParam = searchParams.get('isBlocked');
+
+    if (projectId && !checkUserProjectAccess(user, projectId, 'viewer')) {
+      return NextResponse.json({ error: 'Accesso negato al progetto' }, { status: 403 });
+    }
 
     let allTasks = db
       .select({
@@ -151,6 +156,27 @@ export async function POST(request: Request) {
     const project = db.select().from(projects).where(eq(projects.id, body.projectId)).get();
     if (!project) {
       return NextResponse.json({ error: 'Progetto non trovato' }, { status: 404 });
+    }
+
+    if (!canUserManageProjectContent(user, body.projectId)) {
+      return NextResponse.json(
+        { error: 'Accesso negato: permessi insufficienti per creare attività nel progetto' },
+        { status: 403 }
+      );
+    }
+
+    // Validate that assignees are valid active project members
+    if (body.assignedUserIds && Array.isArray(body.assignedUserIds) && body.assignedUserIds.length > 0) {
+      const projectMembersList = getProjectMembers(body.projectId);
+      const memberIds = new Set(projectMembersList.map((m) => m.userId));
+      for (const uid of body.assignedUserIds) {
+        if (!memberIds.has(uid)) {
+          return NextResponse.json(
+            { error: `L'utente selezionato (${uid}) non fa parte del team di questo progetto` },
+            { status: 400 }
+          );
+        }
+      }
     }
 
     const now = new Date().toISOString();

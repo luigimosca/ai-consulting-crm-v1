@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db, projectMilestones, projects } from '@ai-crm/db';
 import { eq, desc, and } from 'drizzle-orm';
-import { requireAuth } from '@/lib/auth';
+import { requireAuth, canUserManageProjectContent } from '@/lib/auth';
 import { logActivity } from '@/lib/activity-logger';
 
 export const dynamic = 'force-dynamic';
@@ -14,6 +14,13 @@ export async function POST(
     const user = await requireAuth();
     const { id } = await params;
     const body = await request.json();
+
+    if (!canUserManageProjectContent(user, id)) {
+      return NextResponse.json(
+        { error: 'Accesso negato: permessi insufficienti per creare milestone nel progetto' },
+        { status: 403 }
+      );
+    }
 
     if (!body.title || !body.dueDate) {
       return NextResponse.json({ error: 'Titolo e data prevista della milestone sono obbligatori' }, { status: 400 });
@@ -55,6 +62,9 @@ export async function POST(
     if (error?.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 });
     }
+    if (error?.message === 'FORBIDDEN') {
+      return NextResponse.json({ error: 'Accesso negato' }, { status: 403 });
+    }
     return NextResponse.json({ error: error?.message || 'Errore creazione milestone' }, { status: 500 });
   }
 }
@@ -68,6 +78,13 @@ export async function PATCH(
     const { id } = await params;
     const body = await request.json();
     const { milestoneId } = body;
+
+    if (!canUserManageProjectContent(user, id)) {
+      return NextResponse.json(
+        { error: 'Accesso negato: permessi insufficienti per modificare le milestone del progetto' },
+        { status: 403 }
+      );
+    }
 
     if (!milestoneId) {
       return NextResponse.json({ error: 'milestoneId obbligatorio' }, { status: 400 });
@@ -93,6 +110,9 @@ export async function PATCH(
     if (error?.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 });
     }
+    if (error?.message === 'FORBIDDEN') {
+      return NextResponse.json({ error: 'Accesso negato' }, { status: 403 });
+    }
     return NextResponse.json({ error: error?.message || 'Errore aggiornamento milestone' }, { status: 500 });
   }
 }
@@ -107,8 +127,15 @@ export async function DELETE(
     const { searchParams } = new URL(request.url);
     const milestoneId = searchParams.get('milestoneId');
 
+    if (!canUserManageProjectContent(user, id)) {
+      return NextResponse.json(
+        { error: 'Accesso negato: permessi insufficienti per eliminare milestone nel progetto' },
+        { status: 403 }
+      );
+    }
+
     if (!milestoneId) {
-      return NextResponse.json({ error: 'milestoneId obbligatorio' }, { status: 400 });
+      return NextResponse.json({ error: 'milestoneId query param obbligatorio' }, { status: 400 });
     }
 
     db.delete(projectMilestones)
@@ -119,6 +146,9 @@ export async function DELETE(
   } catch (error: any) {
     if (error?.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 });
+    }
+    if (error?.message === 'FORBIDDEN') {
+      return NextResponse.json({ error: 'Accesso negato' }, { status: 403 });
     }
     return NextResponse.json({ error: error?.message || 'Errore eliminazione milestone' }, { status: 500 });
   }

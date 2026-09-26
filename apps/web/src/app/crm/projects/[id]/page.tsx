@@ -43,6 +43,7 @@ import {
 } from 'lucide-react';
 import { SUGGESTED_ROLES_TAXONOMY } from '@ai-crm/ai';
 import { ClientRequestsTab } from '@/components/crm/ClientRequestsTab';
+import { ProjectTeamTab } from '@/components/crm/ProjectTeamTab';
 
 export default function ProjectDetailPage({
   params,
@@ -55,7 +56,7 @@ export default function ProjectDetailPage({
   const [projectData, setProjectData] = useState<any>(null);
   const [usersList, setUsersList] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'gantt' | 'documents' | 'materials'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'gantt' | 'documents' | 'materials' | 'team'>('overview');
 
   // Process Templates State
   const [appliedTemplates, setAppliedTemplates] = useState<any[]>([]);
@@ -128,7 +129,7 @@ export default function ProjectDetailPage({
     try {
       const [projRes, usersRes, ordersRes, appliedTemplatesRes] = await Promise.all([
         fetch(`/api/projects/${id}?t=${Date.now()}`),
-        fetch('/api/users'),
+        fetch(`/api/users?projectId=${id}&t=${Date.now()}`),
         fetch('/api/orders'),
         fetch(`/api/projects/${id}/applied-templates?t=${Date.now()}`),
       ]);
@@ -971,6 +972,19 @@ export default function ProjectDetailPage({
           <Inbox className="h-4 w-4 text-rose-400" />
           <span>Materiali & Richieste Cliente</span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('team')}
+          className={`px-4 py-2.5 rounded-t-lg font-semibold transition-colors flex items-center gap-2 ${
+            activeTab === 'team'
+              ? 'bg-slate-900 text-white border-t-2 border-indigo-500'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900/40'
+          }`}
+        >
+          <Users className="h-4 w-4 text-indigo-400" />
+          <span>Team di Progetto</span>
+        </button>
       </div>
 
       {/* TAB 1: PANORAMICA & MILESTONE */}
@@ -1400,6 +1414,11 @@ export default function ProjectDetailPage({
           documentsList={documents}
           onRefreshProject={fetchProject}
         />
+      )}
+
+      {/* TAB 6: TEAM & PERMESSI */}
+      {activeTab === 'team' && (
+        <ProjectTeamTab projectId={id} onMembersUpdated={fetchProject} />
       )}
 
       {/* MODAL: TASK CREATE / EDIT */}

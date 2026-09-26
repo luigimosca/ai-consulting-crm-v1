@@ -20,14 +20,19 @@ export async function POST(request: Request) {
 
     // Auto-provision default admin if users table is empty for quick testing
     if (!user && cleanEmail === 'admin@ai-agency.it' && password === 'admin123') {
+      const now = new Date().toISOString();
       const newAdmin = {
         id: 'usr_admin_default',
         name: 'Amministratore AI Agency',
         email: 'admin@ai-agency.it',
         passwordHash: await hashPassword('admin123'),
         role: 'admin' as const,
+        status: 'active' as const,
         avatar: null,
-        createdAt: new Date().toISOString(),
+        invitedBy: null,
+        activatedAt: now,
+        createdAt: now,
+        updatedAt: now,
       };
       db.insert(users).values(newAdmin).run();
       user = newAdmin;
@@ -35,6 +40,14 @@ export async function POST(request: Request) {
 
     if (!user) {
       return NextResponse.json({ error: 'Credenziali non valide' }, { status: 401 });
+    }
+
+    // Check if account is inactive
+    if (user.status === 'inactive') {
+      return NextResponse.json(
+        { error: 'Account disattivato. Contatta l\'amministratore del sistema.' },
+        { status: 401 }
+      );
     }
 
     const isMatch = await verifyPassword(password, user.passwordHash);
@@ -48,6 +61,7 @@ export async function POST(request: Request) {
       email: user.email,
       name: user.name,
       role: user.role,
+      status: user.status,
     });
 
     // Set cookie
@@ -67,10 +81,11 @@ export async function POST(request: Request) {
         name: user.name,
         email: user.email,
         role: user.role,
+        status: user.status,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Login error:', error);
-    return NextResponse.json({ error: 'Errore interno del server' }, { status: 500 });
+    return NextResponse.json({ error: 'Errore interno durante il login' }, { status: 500 });
   }
 }

@@ -603,7 +603,7 @@ export async function createClientRequest(params: {
     relationType?: 'blocks' | 'supports';
   }>;
 }, user?: { userId: string; role: string }): Promise<ClientRequestDetail> {
-  if (user && !checkUserProjectAccess(user, params.projectId)) {
+  if (user && !checkUserProjectAccess(user, params.projectId, 'editor')) {
     throw new Error('FORBIDDEN');
   }
 
@@ -881,7 +881,7 @@ export async function approveClientRequest(
   if (!req) throw new Error('Richiesta non trovata');
 
   const actor = user || { userId: performedByUserId, role: 'operator' };
-  if (actor.role !== 'admin' && !canUserAccessClientRequest(actor, requestId)) {
+  if (actor.role !== 'admin' && !canUserAccessClientRequest(actor, requestId, 'approve')) {
     throw new Error('FORBIDDEN');
   }
 
@@ -993,7 +993,7 @@ export async function rejectClientRequest(
   if (!req) throw new Error('Richiesta non trovata');
 
   const actor = user || { userId: performedByUserId, role: 'operator' };
-  if (actor.role !== 'admin' && !canUserAccessClientRequest(actor, requestId)) {
+  if (actor.role !== 'admin' && !canUserAccessClientRequest(actor, requestId, 'approve')) {
     throw new Error('FORBIDDEN');
   }
 
