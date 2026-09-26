@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireAuth } from '@/lib/auth';
+import { requireAuth, checkUserProjectAccess } from '@/lib/auth';
 import { applyTemplateToProject } from '@/lib/process-templates-service';
 
 export const dynamic = 'force-dynamic';
@@ -13,6 +13,13 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: 'projectId e templateId sono obbligatori' },
         { status: 400 }
+      );
+    }
+
+    if (!checkUserProjectAccess(user, body.projectId, 'editor')) {
+      return NextResponse.json(
+        { error: 'Accesso negato: permessi insufficienti per applicare modelli al progetto' },
+        { status: 403 }
       );
     }
 
@@ -33,6 +40,9 @@ export async function POST(request: Request) {
   } catch (error: any) {
     if (error?.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 });
+    }
+    if (error?.message === 'FORBIDDEN') {
+      return NextResponse.json({ error: 'Accesso negato' }, { status: 403 });
     }
     return NextResponse.json({ error: error?.message || 'Errore applicazione modello al progetto' }, { status: 500 });
   }

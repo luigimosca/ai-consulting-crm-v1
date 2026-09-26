@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { db, documents } from '@ai-crm/db';
-import { requireAuth } from '@/lib/auth';
+import {
+  requireAuth,
+  checkUserProjectAccess,
+  canUserEditTask,
+  canUserAccessClientRequest,
+} from '@/lib/auth';
 import { getStorageProvider } from '@/lib/storage';
 import { logActivity } from '@/lib/activity-logger';
 
@@ -22,6 +27,19 @@ export async function POST(request: Request) {
         { error: 'File, entityType e entityId sono campi obbligatori' },
         { status: 400 }
       );
+    }
+
+    // Enforce entity-level authorization
+    if (user.role !== 'admin') {
+      if (entityType === 'project' && !checkUserProjectAccess(user, entityId, 'contributor')) {
+        return NextResponse.json({ error: 'Accesso negato: non autorizzato al caricamento file per questo progetto' }, { status: 403 });
+      }
+      if (entityType === 'task' && !canUserEditTask(user, entityId)) {
+        return NextResponse.json({ error: 'Accesso negato: non autorizzato al caricamento file per questa attività' }, { status: 403 });
+      }
+      if (entityType === 'client_request' && !canUserAccessClientRequest(user, entityId, 'submit')) {
+        return NextResponse.json({ error: 'Accesso negato: non autorizzato al caricamento file per questa richiesta' }, { status: 403 });
+      }
     }
 
     const arrayBuffer = await file.arrayBuffer();
@@ -77,6 +95,9 @@ export async function POST(request: Request) {
   } catch (error: any) {
     if (error?.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 });
+    }
+    if (error?.message === 'FORBIDDEN') {
+      return NextResponse.json({ error: 'Accesso negato' }, { status: 403 });
     }
     return NextResponse.json({ error: error?.message || 'Errore caricamento documento' }, { status: 500 });
   }

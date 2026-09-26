@@ -703,10 +703,43 @@ export function initDatabase() {
     );
     CREATE INDEX IF NOT EXISTS request_comments_request_id_idx ON request_comments(request_id);
     CREATE INDEX IF NOT EXISTS request_comments_author_idx ON request_comments(author_user_id);
+
+    -- Team & Permessi (Project Members & User Invitations)
+    CREATE TABLE IF NOT EXISTS project_members (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      user_id TEXT NOT NULL REFERENCES users(id),
+      project_role TEXT NOT NULL DEFAULT 'contributor',
+      status TEXT NOT NULL DEFAULT 'active',
+      joined_at TEXT NOT NULL,
+      added_by TEXT REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS project_members_project_id_idx ON project_members(project_id);
+    CREATE INDEX IF NOT EXISTS project_members_user_id_idx ON project_members(user_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS project_members_proj_user_uniq ON project_members(project_id, user_id);
+
+    CREATE TABLE IF NOT EXISTS user_invitations (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'operator',
+      token TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_by TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS user_invitations_token_idx ON user_invitations(token);
+    CREATE INDEX IF NOT EXISTS user_invitations_email_idx ON user_invitations(email);
   `);
 
   // Migrazione retrocompatibile per colonne aggiuntive se le tabelle esistevano già
   const migrations = [
+    'ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT "active"',
+    'ALTER TABLE users ADD COLUMN invited_by TEXT',
+    'ALTER TABLE users ADD COLUMN activated_at TEXT',
+    'ALTER TABLE users ADD COLUMN updated_at TEXT',
+    'CREATE INDEX IF NOT EXISTS users_status_idx ON users(status)',
     'ALTER TABLE decision_makers ADD COLUMN source_url TEXT',
     'ALTER TABLE decision_makers ADD COLUMN raw_data TEXT',
     'ALTER TABLE decision_makers ADD COLUMN extracted_at TEXT',
@@ -750,6 +783,53 @@ export function initDatabase() {
     try {
       sqlite.exec(m);
     } catch {}
+  }
+
+  // Migrazione automatica pregressi in project_members
+  try {
+    const existingProjects = sqlite.prepare(`SELECT id, manager_id, created_by, created_at FROM projects`).all() as Array<{
+      id: string;
+      manager_id: string | null;
+      created_by: string;
+      created_at: string;
+    }>;
+
+    for (const proj of existingProjects) {
+      // 1. Inserisci project manager come 'manager'
+      if (proj.manager_id) {
+        sqlite.prepare(`
+          INSERT OR IGNORE INTO project_members (id, project_id, user_id, project_role, status, joined_at, added_by)
+          VALUES (?, ?, ?, 'manager', 'active', ?, ?)
+        `).run(`pm_${proj.id}_${proj.manager_id}`, proj.id, proj.manager_id, proj.created_at || new Date().toISOString(), proj.created_by || proj.manager_id);
+      }
+
+      // 2. Inserisci project creator come 'manager' se non già presente
+      if (proj.created_by && proj.created_by !== proj.manager_id) {
+        sqlite.prepare(`
+          INSERT OR IGNORE INTO project_members (id, project_id, user_id, project_role, status, joined_at, added_by)
+          VALUES (?, ?, ?, 'manager', 'active', ?, ?)
+        `).run(`pm_${proj.id}_${proj.created_by}`, proj.id, proj.created_by, proj.created_at || new Date().toISOString(), proj.created_by);
+      }
+
+      // 3. Inserisci tutti gli utenti con task assegnati come 'contributor'
+      const taskUsers = sqlite.prepare(`
+        SELECT DISTINCT ta.user_id 
+        FROM task_assignments ta
+        JOIN tasks t ON ta.task_id = t.id
+        WHERE t.project_id = ?
+      `).all(proj.id) as Array<{ user_id: string }>;
+
+      for (const tu of taskUsers) {
+        if (tu.user_id) {
+          sqlite.prepare(`
+            INSERT OR IGNORE INTO project_members (id, project_id, user_id, project_role, status, joined_at, added_by)
+            VALUES (?, ?, ?, 'contributor', 'active', ?, ?)
+          `).run(`pm_${proj.id}_${tu.user_id}`, proj.id, tu.user_id, proj.created_at || new Date().toISOString(), proj.created_by || proj.manager_id);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Migration error backfilling project_members:', err);
   }
 
   // Se la tabella projects ha ancora il vincolo NOT NULL su order_id, migriamo la tabella preservando tutti i dati

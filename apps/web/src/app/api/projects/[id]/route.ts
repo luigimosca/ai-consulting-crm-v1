@@ -13,7 +13,7 @@ import {
   users,
 } from '@ai-crm/db';
 import { eq, desc, and } from 'drizzle-orm';
-import { requireAuth } from '@/lib/auth';
+import { requireAuth, checkUserProjectAccess } from '@/lib/auth';
 import { recalculateProjectProgress, isTaskBlocked } from '@/lib/task-graph';
 import { logActivity } from '@/lib/activity-logger';
 
@@ -30,6 +30,10 @@ export async function GET(
     const project = db.select().from(projects).where(eq(projects.id, id)).get();
     if (!project) {
       return NextResponse.json({ error: 'Progetto non trovato' }, { status: 404 });
+    }
+
+    if (!checkUserProjectAccess(user, id, 'viewer')) {
+      return NextResponse.json({ error: 'Accesso negato al progetto' }, { status: 403 });
     }
 
     // Commessa (if linked)
@@ -145,6 +149,10 @@ export async function PATCH(
     const project = db.select().from(projects).where(eq(projects.id, id)).get();
     if (!project) {
       return NextResponse.json({ error: 'Progetto non trovato' }, { status: 404 });
+    }
+
+    if (!checkUserProjectAccess(user, id, 'editor')) {
+      return NextResponse.json({ error: 'Accesso negato: permessi insufficienti per modificare il progetto' }, { status: 403 });
     }
 
     const now = new Date().toISOString();

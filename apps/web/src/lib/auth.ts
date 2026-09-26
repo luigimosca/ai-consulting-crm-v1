@@ -8,6 +8,7 @@ import {
   projects,
   tasks,
   taskAssignments,
+  projectMembers,
   clientRequests,
   clientRequestItems,
   documents,
@@ -20,11 +21,22 @@ const JWT_SECRET = new TextEncoder().encode(
 
 export const COOKIE_NAME = 'ai_crm_session';
 
+export type GlobalRole = 'admin' | 'operator';
+export type ProjectRole = 'manager' | 'editor' | 'contributor' | 'viewer';
+
+export const PROJECT_ROLE_HIERARCHY: Record<ProjectRole, number> = {
+  viewer: 1,
+  contributor: 2,
+  editor: 3,
+  manager: 4,
+};
+
 export interface UserSessionPayload {
   userId: string;
   email: string;
   name: string;
-  role: 'admin' | 'operator';
+  role: GlobalRole;
+  status?: 'active' | 'inactive';
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -46,7 +58,26 @@ export async function createSessionToken(payload: UserSessionPayload): Promise<s
 export async function verifySessionToken(token: string): Promise<UserSessionPayload | null> {
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET);
-    return payload as unknown as UserSessionPayload;
+    const sessionPayload = payload as unknown as UserSessionPayload;
+
+    // Direct database validation: verify user exists and is still active
+    const dbUser = db
+      .select({ id: users.id, email: users.email, name: users.name, role: users.role, status: users.status })
+      .from(users)
+      .where(eq(users.id, sessionPayload.userId))
+      .get();
+
+    if (!dbUser || dbUser.status === 'inactive') {
+      return null;
+    }
+
+    return {
+      userId: dbUser.id,
+      email: dbUser.email,
+      name: dbUser.name,
+      role: dbUser.role,
+      status: dbUser.status,
+    };
   } catch {
     return null;
   }
@@ -65,7 +96,7 @@ export async function getCurrentUser(): Promise<UserSessionPayload | null> {
 
 export async function requireAuth(allowedRoles?: ('admin' | 'operator')[]) {
   const user = await getCurrentUser();
-  if (!user) {
+  if (!user || user.status === 'inactive') {
     throw new Error('UNAUTHORIZED');
   }
   if (allowedRoles && !allowedRoles.includes(user.role)) {
@@ -75,25 +106,41 @@ export async function requireAuth(allowedRoles?: ('admin' | 'operator')[]) {
 }
 
 /**
- * Verifies whether a user has permission to access a specific project.
- * - Admin: always has access.
- * - Operator: has access if:
- *   1) is project manager (projects.managerId === user.userId)
- *   2) is project creator (projects.createdBy === user.userId)
- *   3) is assigned to at least one task in the project (task_assignments -> tasks.projectId)
- *   4) is assigned to or created at least one client_request in the project
+ * Returns the effective project role for a user in a given project.
+ * - Global Admin is automatically treated as 'manager' across all projects.
+ * - For Operators, checks the active project_members entry.
+ * - Fallbacks to project.managerId or project.createdBy if member record hasn't synced yet.
  */
-export function checkUserProjectAccess(user: { userId: string; role: string }, projectId: string): boolean {
-  if (user.role === 'admin') return true;
+export function getUserProjectRole(
+  user: { userId: string; role: string },
+  projectId: string
+): ProjectRole | null {
+  if (user.role === 'admin') return 'manager';
 
-  const project = db.select().from(projects).where(eq(projects.id, projectId)).get();
-  if (!project) return false;
+  const member = db
+    .select({ projectRole: projectMembers.projectRole, status: projectMembers.status })
+    .from(projectMembers)
+    .where(
+      and(
+        eq(projectMembers.projectId, projectId),
+        eq(projectMembers.userId, user.userId),
+        eq(projectMembers.status, 'active')
+      )
+    )
+    .get();
 
-  if (project.managerId === user.userId || project.createdBy === user.userId) {
-    return true;
+  if (member) {
+    return member.projectRole as ProjectRole;
   }
 
-  // Check if assigned to any task in this project
+  // Fallback check on project record
+  const project = db.select({ managerId: projects.managerId, createdBy: projects.createdBy }).from(projects).where(eq(projects.id, projectId)).get();
+  if (!project) return null;
+
+  if (project.managerId === user.userId) return 'manager';
+  if (project.createdBy === user.userId) return 'editor';
+
+  // Fallback check on task assignments
   const taskAssign = db
     .select({ id: taskAssignments.id })
     .from(taskAssignments)
@@ -101,39 +148,115 @@ export function checkUserProjectAccess(user: { userId: string; role: string }, p
     .where(and(eq(tasks.projectId, projectId), eq(taskAssignments.userId, user.userId)))
     .get();
 
-  if (taskAssign) return true;
+  if (taskAssign) return 'contributor';
 
-  // Check if assigned to or created any client request in this project
-  const reqAssign = db
-    .select({ id: clientRequests.id })
-    .from(clientRequests)
-    .where(
-      and(
-        eq(clientRequests.projectId, projectId),
-        or(eq(clientRequests.assignedToUserId, user.userId), eq(clientRequests.requestedByUserId, user.userId))
-      )
-    )
-    .get();
+  return null;
+}
 
-  if (reqAssign) return true;
+/**
+ * Verifies whether a user has permission to access a specific project with at least `minRole`.
+ */
+export function checkUserProjectAccess(
+  user: { userId: string; role: string },
+  projectId: string,
+  minRole?: ProjectRole
+): boolean {
+  if (user.role === 'admin') return true;
+
+  const userRole = getUserProjectRole(user, projectId);
+  if (!userRole) return false;
+
+  if (!minRole) return true; // At least viewer
+
+  return PROJECT_ROLE_HIERARCHY[userRole] >= PROJECT_ROLE_HIERARCHY[minRole];
+}
+
+/**
+ * Verifies whether a user can edit a specific task:
+ * - Admin: yes
+ * - Project Manager / Editor: yes
+ * - Contributor: yes ONLY IF explicitly assigned to this task
+ * - Viewer: no
+ */
+export function canUserEditTask(user: { userId: string; role: string }, taskId: string): boolean {
+  if (user.role === 'admin') return true;
+
+  const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
+  if (!task) return false;
+
+  const role = getUserProjectRole(user, task.projectId);
+  if (!role) return false;
+
+  if (role === 'manager' || role === 'editor') return true;
+
+  if (role === 'contributor') {
+    const isAssigned = db
+      .select({ id: taskAssignments.id })
+      .from(taskAssignments)
+      .where(and(eq(taskAssignments.taskId, taskId), eq(taskAssignments.userId, user.userId)))
+      .get();
+    return !!isAssigned;
+  }
 
   return false;
 }
 
 /**
+ * Verifies whether a user can create or delete tasks / milestones in a project:
+ * - Admin: yes
+ * - Manager / Editor: yes
+ * - Contributor / Viewer: no
+ */
+export function canUserManageProjectContent(user: { userId: string; role: string }, projectId: string): boolean {
+  if (user.role === 'admin') return true;
+  return checkUserProjectAccess(user, projectId, 'editor');
+}
+
+/**
+ * Verifies whether a user can manage the project team (add/remove members, update roles):
+ * - Admin: yes
+ * - Manager: yes
+ * - Others: no
+ */
+export function canUserManageProjectTeam(user: { userId: string; role: string }, projectId: string): boolean {
+  if (user.role === 'admin') return true;
+  return checkUserProjectAccess(user, projectId, 'manager');
+}
+
+/**
  * Verifies whether a user has permission to access a specific client request.
  */
-export function canUserAccessClientRequest(user: { userId: string; role: string }, requestId: string): boolean {
+export function canUserAccessClientRequest(
+  user: { userId: string; role: string },
+  requestId: string,
+  action: 'view' | 'submit' | 'edit' | 'approve' = 'view'
+): boolean {
   if (user.role === 'admin') return true;
 
   const req = db.select().from(clientRequests).where(eq(clientRequests.id, requestId)).get();
   if (!req) return false;
 
-  if (req.assignedToUserId === user.userId || req.requestedByUserId === user.userId) {
+  const role = getUserProjectRole(user, req.projectId);
+  if (!role) return false;
+
+  if (action === 'view') {
     return true;
   }
 
-  return checkUserProjectAccess(user, req.projectId);
+  if (action === 'approve') {
+    return role === 'manager';
+  }
+
+  if (action === 'edit') {
+    return role === 'manager' || role === 'editor';
+  }
+
+  if (action === 'submit') {
+    // Contributor can submit materials, especially if assigned
+    return role === 'manager' || role === 'editor' || role === 'contributor' || req.assignedToUserId === user.userId;
+  }
+
+  return false;
 }
 
 /**
@@ -163,7 +286,7 @@ export function canUserAccessDocument(user: { userId: string; role: string }, do
   }
 
   if (doc.entityType === 'client_request') {
-    return canUserAccessClientRequest(user, doc.entityId);
+    return canUserAccessClientRequest(user, doc.entityId, 'view');
   }
 
   // Check if this document is linked to any client request item
@@ -174,7 +297,7 @@ export function canUserAccessDocument(user: { userId: string; role: string }, do
     .get();
 
   if (linkedItem) {
-    return canUserAccessClientRequest(user, linkedItem.requestId);
+    return canUserAccessClientRequest(user, linkedItem.requestId, 'view');
   }
 
   return false;
