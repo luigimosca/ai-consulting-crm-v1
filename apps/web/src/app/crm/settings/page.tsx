@@ -133,9 +133,10 @@ export default function AdminSettingsPage() {
           router.push('/login');
           return;
         }
-        const user = await res.json();
+        const data = await res.json();
+        const user = data.user || data;
         setCurrentUser(user);
-        if (user.role !== 'admin') {
+        if (!user || user.role !== 'admin') {
           setIsUnauthorized(true);
         }
       } catch {
