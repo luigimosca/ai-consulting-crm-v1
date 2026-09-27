@@ -8,6 +8,7 @@ import {
   clientRequestItems,
   documents,
   users,
+  activityLog,
 } from '@ai-crm/db';
 import { eq, and, desc, inArray } from 'drizzle-orm';
 import {
@@ -16,6 +17,8 @@ import {
   canUserAccessPlatformAccount,
   checkUserProjectAccess,
 } from './auth';
+
+export type VerificationType = 'manual_operator' | 'api_integration';
 
 export type PlatformType =
   | 'dns_registrar'
@@ -113,12 +116,19 @@ export interface UpdateAccountInput {
   status?: AccountStatus;
   notes?: string;
   evidenceDocumentId?: string;
+  revocationReason?: string;
 }
 
 export interface VerifyAccountInput {
+  verificationType?: VerificationType;
   verificationMethod: string;
   verificationNotes?: string;
   evidenceDocumentId?: string;
+}
+
+export interface RevokeAccountInput {
+  revocationReason?: string;
+  notes?: string;
 }
 
 /**
@@ -165,10 +175,17 @@ export async function getCompanyPlatformAccounts(companyId: string, user: UserSe
       verifierName = verifier?.name || null;
     }
 
+    let revokerName = null;
+    if (acc.revokedByUserId) {
+      const revoker = db.select({ name: users.name }).from(users).where(eq(users.id, acc.revokedByUserId)).get();
+      revokerName = revoker?.name || null;
+    }
+
     results.push({
       ...acc,
       linkedProjects: links,
       verifierName,
+      revokerName,
     });
   }
 
@@ -249,12 +266,19 @@ export async function getProjectPlatformAccounts(projectId: string, user: UserSe
       verifierName = verifier?.name || null;
     }
 
+    let revokerName = null;
+    if (acc.revokedByUserId) {
+      const revoker = db.select({ name: users.name }).from(users).where(eq(users.id, acc.revokedByUserId)).get();
+      revokerName = revoker?.name || null;
+    }
+
     return {
       ...acc,
       isLinkedToProject: !!linkInfo,
       projectLinkId: linkInfo?.linkId || null,
       projectLinkedAt: linkInfo?.linkedAt || null,
       verifierName,
+      revokerName,
     };
   });
 }
@@ -294,10 +318,17 @@ export async function getPlatformAccountById(accountId: string, user: UserSessio
     verifierName = verifier?.name || null;
   }
 
+  let revokerName = null;
+  if (acc.revokedByUserId) {
+    const revoker = db.select({ name: users.name }).from(users).where(eq(users.id, acc.revokedByUserId)).get();
+    revokerName = revoker?.name || null;
+  }
+
   return {
     ...acc,
     linkedProjects: links,
     verifierName,
+    revokerName,
   };
 }
 
@@ -336,10 +367,14 @@ export async function createPlatformAccount(input: CreateAccountInput, user: Use
     originClientRequestId: input.originClientRequestId || null,
     originClientRequestItemId: input.originClientRequestItemId || null,
     evidenceDocumentId: input.evidenceDocumentId || null,
+    verificationType: 'manual_operator' as const,
     verificationMethod: null,
     verificationNotes: null,
     verifiedByUserId: null,
     verifiedAt: null,
+    revokedAt: null,
+    revokedByUserId: null,
+    revocationReason: null,
     notes: input.notes?.trim() || null,
     createdAt: now,
     updatedAt: now,
@@ -368,6 +403,7 @@ export async function createPlatformAccount(input: CreateAccountInput, user: Use
 /**
  * Updates a platform account metadata.
  * If status is being set to 'verified_active', it must be done via verifyPlatformAccount.
+ * If status is being set to 'revoked', historical verification data is PRESERVED and revocation is recorded.
  */
 export async function updatePlatformAccount(
   accountId: string,
@@ -412,10 +448,43 @@ export async function updatePlatformAccount(
       throw new Error('INVALID_OPERATION: Per impostare lo stato su verified_active è necessario utilizzare l\'endpoint di verifica con metodo ed evidenza.');
     }
     updatePayload.status = input.status;
-    if (input.status === 'revoked' || input.status === 'expired' || input.status === 'not_requested') {
-      // Clear verification on revoke
-      updatePayload.verifiedByUserId = null;
-      updatePayload.verifiedAt = null;
+
+    // When revoked, record revocation event and PRESERVE historical verification audit!
+    if (input.status === 'revoked') {
+      const reason = input.revocationReason?.trim() || input.notes?.trim() || 'Accesso revocato dall\'operatore';
+      updatePayload.revokedAt = now;
+      updatePayload.revokedByUserId = user.userId;
+      updatePayload.revocationReason = reason;
+
+      try {
+        const activityId = `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        db.insert(activityLog)
+          .values({
+            id: activityId,
+            entityType: 'client_platform_account',
+            entityId: accountId,
+            action: 'account_revoked',
+            performedBy: user.userId,
+            detailsJson: JSON.stringify({
+              previousStatus: existing.status,
+              revocationReason: reason,
+              historicalVerification: {
+                verifiedByUserId: existing.verifiedByUserId,
+                verifiedAt: existing.verifiedAt,
+                verificationType: existing.verificationType,
+                verificationMethod: existing.verificationMethod,
+                verificationNotes: existing.verificationNotes,
+              },
+            }),
+            beforeJson: JSON.stringify(existing),
+            afterJson: null,
+            ipAddress: null,
+            createdAt: now,
+          })
+          .run();
+      } catch (err) {
+        console.error('Failed to log account revocation activity:', err);
+      }
     }
   }
 
@@ -425,6 +494,25 @@ export async function updatePlatformAccount(
     .run();
 
   return getPlatformAccountById(accountId, user);
+}
+
+/**
+ * Dedicated revocation of a platform account.
+ * Updates status to 'revoked' and records author, timestamp and reason while PRESERVING historical verification data.
+ */
+export async function revokePlatformAccount(
+  accountId: string,
+  input: RevokeAccountInput,
+  user: UserSessionPayload
+) {
+  return updatePlatformAccount(
+    accountId,
+    {
+      status: 'revoked',
+      revocationReason: input.revocationReason || input.notes || 'Accesso revocato dall\'operatore',
+    },
+    user
+  );
 }
 
 /**
@@ -457,19 +545,49 @@ export async function verifyPlatformAccount(
   }
 
   const now = new Date().toISOString();
+  const vType: VerificationType = input.verificationType || 'manual_operator';
 
   db.update(clientPlatformAccounts)
     .set({
       status: 'verified_active',
+      verificationType: vType,
       verificationMethod: input.verificationMethod.trim(),
       verificationNotes: input.verificationNotes?.trim() || null,
       evidenceDocumentId: input.evidenceDocumentId || existing.evidenceDocumentId,
       verifiedByUserId: user.userId,
       verifiedAt: now,
+      revokedAt: null,
+      revokedByUserId: null,
+      revocationReason: null,
       updatedAt: now,
     })
     .where(eq(clientPlatformAccounts.id, accountId))
     .run();
+
+  // Log verification in activityLog
+  try {
+    const activityId = `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    db.insert(activityLog)
+      .values({
+        id: activityId,
+        entityType: 'client_platform_account',
+        entityId: accountId,
+        action: 'account_verified',
+        performedBy: user.userId,
+        detailsJson: JSON.stringify({
+          verificationType: vType,
+          verificationMethod: input.verificationMethod.trim(),
+          verificationNotes: input.verificationNotes?.trim() || null,
+        }),
+        beforeJson: JSON.stringify(existing),
+        afterJson: null,
+        ipAddress: null,
+        createdAt: now,
+      })
+      .run();
+  } catch (err) {
+    console.error('Failed to log account verification activity:', err);
+  }
 
   return getPlatformAccountById(accountId, user);
 }

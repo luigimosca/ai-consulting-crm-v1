@@ -1019,10 +1019,19 @@ export const clientPlatformAccounts = sqliteTable(
 
     evidenceDocumentId: text('evidence_document_id').references(() => documents.id),
 
+    verificationType: text('verification_type', {
+      enum: ['manual_operator', 'api_integration'],
+    })
+      .notNull()
+      .default('manual_operator'),
     verificationMethod: text('verification_method'),
     verificationNotes: text('verification_notes'),
     verifiedByUserId: text('verified_by_user_id').references(() => users.id),
     verifiedAt: text('verified_at'),
+
+    revokedAt: text('revoked_at'),
+    revokedByUserId: text('revoked_by_user_id').references(() => users.id),
+    revocationReason: text('revocation_reason'),
 
     notes: text('notes'),
 

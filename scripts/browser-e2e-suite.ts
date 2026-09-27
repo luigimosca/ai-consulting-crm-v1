@@ -308,37 +308,64 @@ async function runBrowserTests() {
     await page.fill('textarea[placeholder*="CID 123-456-7890"]', 'CID 123-456-7890 accettato e visibile sotto MCC agenzia con permessi completi.');
     await page.click('form button[type="submit"]:has-text("Conferma Accesso Verificato")');
     await page.waitForSelector('text=Attivo & Verificato', { timeout: 8000 });
+    await page.waitForSelector('text=Verificato manualmente dall\'operatore', { timeout: 8000 });
     await page.waitForTimeout(500);
 
     const shot5 = path.join(ARTIFACT_DIR, '05_account_verified_active.png');
     await page.screenshot({ path: shot5, fullPage: false });
     reports.push({
       id: 'step_5_verify_active',
-      name: 'Verifica e Attivazione Accesso (verified_active)',
+      name: 'Verifica Manuale Operatore & Attivazione (verified_active)',
       passed: true,
-      details: 'Stato aggiornato a "Attivo & Verificato" con badge verde, verificatore registrato e timestamp',
+      details: 'Stato aggiornato a "Attivo & Verificato" con distinzione esplicita "Verificato manualmente dall\'operatore", badge "Controllo Manuale v1", verificatore e timestamp',
       screenshotFile: shot5,
     });
     console.log('  ✓ Screenshot salvato: 05_account_verified_active.png');
 
     // -------------------------------------------------------------
-    // STEP 7: Revoca Accesso
+    // STEP 7: Revoca Accesso con Modale e Preservazione Evidenza Storica
     // -------------------------------------------------------------
-    console.log('[STEP 7] Revoca accesso dell account...');
+    console.log('[STEP 7] Revoca accesso con modale e controllo preservazione storico...');
     await page.click('button:has-text("Revoca")');
-    await page.waitForSelector('text=Revocato', { timeout: 8000 });
+    await page.waitForSelector('text=Revoca Accesso Account / Delega', { timeout: 5000 });
+
+    await page.fill('textarea[placeholder*="Delega rimossa"]', 'Revoca autorizzata dal cliente per audit di sicurezza semestrale (DEMO).');
+    await page.click('form button[type="submit"]:has-text("Conferma Revoca Accesso")');
+    await page.waitForSelector('text=Accesso Revocato / Scaduto', { timeout: 8000 });
+    await page.waitForSelector('text=Evidenza storica di verifica (Preservata)', { timeout: 8000 });
     await page.waitForTimeout(500);
 
     const shot6 = path.join(ARTIFACT_DIR, '06_account_revoked.png');
     await page.screenshot({ path: shot6, fullPage: false });
+
+    // DB level regression check: verification fields MUST be preserved!
+    const { db: dbConn, clientPlatformAccounts: accTable, activityLog: actTable } = await import('@ai-crm/db');
+    const { eq: eqOp } = await import('drizzle-orm');
+    const dbAccount = dbConn.select().from(accTable).where(eqOp(accTable.companyId, 'comp_demo_jammja')).get();
+    const isAuditPreserved = !!(
+      dbAccount &&
+      dbAccount.status === 'revoked' &&
+      dbAccount.revokedAt &&
+      dbAccount.revocationReason &&
+      dbAccount.verifiedAt &&
+      dbAccount.verifiedByUserId &&
+      dbAccount.verificationMethod
+    );
+
+    const activityLogs = dbConn.select().from(actTable).where(eqOp(actTable.entityId, dbAccount?.id || '')).all();
+    const hasRevokeLog = activityLogs.some((l) => l.action === 'account_revoked');
+    const hasVerifyLog = activityLogs.some((l) => l.action === 'account_verified');
+
     reports.push({
       id: 'step_6_revoked_state',
-      name: 'Revoca Accesso & Aggiornamento Registro',
-      passed: true,
-      details: 'Stato aggiornato a "Revocato / Scaduto", audit trail di verifica azzerato e pulsante Verifica ripristinato',
+      name: 'Revoca Accesso con Audit Storico Preservato & Event Log',
+      passed: isAuditPreserved && hasRevokeLog && hasVerifyLog,
+      details: isAuditPreserved && hasRevokeLog && hasVerifyLog
+        ? 'Stato revocato con successo: data/verificatore storico preservati, evento di revoca registrato con motivo e autore'
+        : 'ERRORE: campi di audit o log di revoca non preservati correttamente',
       screenshotFile: shot6,
     });
-    console.log('  ✓ Screenshot salvato: 06_account_revoked.png');
+    console.log(`  ✓ Screenshot salvato: 06_account_revoked.png (Audit preservato: ${isAuditPreserved}, Log: ${hasRevokeLog})`);
 
     // -------------------------------------------------------------
     // STEP 8: Filtri Categoria
@@ -390,8 +417,7 @@ async function runBrowserTests() {
     // STEP 10: Operator A Isolation Test (Mario on Proj A vs Proj B)
     // -------------------------------------------------------------
     console.log('[STEP 10] Test isolamento operatore Mario (solo Progetto A)...');
-    const { db: dbConn, users: usersTable } = await import('@ai-crm/db');
-    const { eq: eqOp } = await import('drizzle-orm');
+    const { users: usersTable } = await import('@ai-crm/db');
     const adminRecord = dbConn.select().from(usersTable).where(eqOp(usersTable.email, 'admin@jammja-simulation.local')).get()!;
     const marioRecord = dbConn.select().from(usersTable).where(eqOp(usersTable.email, 'mario.operatore@agency.local')).get()!;
 

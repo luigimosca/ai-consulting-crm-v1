@@ -90,6 +90,7 @@ export function ProjectAccessesTab({
   // Modals state
   const [isNewAccountModalOpen, setIsNewAccountModalOpen] = useState(false);
   const [isVerifyModalOpen, setIsVerifyModalOpen] = useState(false);
+  const [isRevokeModalOpen, setIsRevokeModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -109,8 +110,13 @@ export function ProjectAccessesTab({
   });
 
   const [verifyForm, setVerifyForm] = useState({
+    verificationType: 'manual_operator',
     verificationMethod: 'Invito MCC / Partner accettato e visibile nel pannello agenzia',
     verificationNotes: '',
+  });
+
+  const [revokeForm, setRevokeForm] = useState({
+    revocationReason: 'Accesso revocato dall\'operatore su richiesta o cessazione attività',
   });
 
   const fetchAccounts = async () => {
@@ -196,9 +202,35 @@ export function ProjectAccessesTab({
       setIsVerifyModalOpen(false);
       setSelectedAccount(null);
       setVerifyForm({
+        verificationType: 'manual_operator',
         verificationMethod: 'Invito MCC / Partner accettato e visibile nel pannello agenzia',
         verificationNotes: '',
       });
+      fetchAccounts();
+    } catch (err: any) {
+      setErrorMessage(err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleRevokeAccountSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedAccount) return;
+    setIsSubmitting(true);
+    setErrorMessage(null);
+    try {
+      const res = await fetch(`/api/accounts/${selectedAccount.id}/revoke`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(revokeForm),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Errore durante la revoca dell\'account');
+
+      setIsRevokeModalOpen(false);
+      setSelectedAccount(null);
       fetchAccounts();
     } catch (err: any) {
       setErrorMessage(err.message);
@@ -242,19 +274,12 @@ export function ProjectAccessesTab({
     }
   };
 
-  const handleRevokeAccount = async (accountId: string) => {
-    try {
-      const res = await fetch(`/api/accounts/${accountId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'revoked', notes: 'Accesso revocato dall\'operatore' }),
-      });
-      if (res.ok) {
-        fetchAccounts();
-      }
-    } catch (err) {
-      console.error('Error revoking account:', err);
-    }
+  const openRevokeModal = (account: any) => {
+    setSelectedAccount(account);
+    setRevokeForm({
+      revocationReason: 'Accesso revocato dall\'operatore su richiesta cliente o chiusura contratto',
+    });
+    setIsRevokeModalOpen(true);
   };
 
   // Filter accounts
@@ -428,22 +453,63 @@ export function ProjectAccessesTab({
                     </span>
                   </div>
 
-                  {/* Verification Box */}
+                  {/* Status & Verification / Revocation Box */}
                   {account.status === 'verified_active' ? (
-                    <div className="p-2.5 bg-emerald-950/30 border border-emerald-900/50 rounded-lg text-xs space-y-1">
-                      <div className="flex items-center gap-1.5 text-emerald-400 font-medium">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        Verificato da {account.verifierName || 'Operatore'} il{' '}
-                        {new Date(account.verifiedAt).toLocaleDateString('it-IT')}
+                    <div className="p-2.5 bg-emerald-950/30 border border-emerald-900/50 rounded-lg text-xs space-y-1.5">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Verificato manualmente dall'operatore
+                        </div>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/40 text-emerald-300 border border-emerald-700/50 font-mono">
+                          Controllo Manuale v1
+                        </span>
+                      </div>
+                      <div className="text-zinc-300">
+                        Verificato da <strong className="text-zinc-100">{account.verifierName || 'Operatore'}</strong> il{' '}
+                        {new Date(account.verifiedAt).toLocaleDateString('it-IT')} alle {new Date(account.verifiedAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
                       </div>
                       {account.verificationMethod && (
                         <div className="text-zinc-400">
-                          Metodo: {account.verificationMethod}
+                          Metodo: <span className="text-zinc-300">{account.verificationMethod}</span>
                         </div>
                       )}
                       {account.verificationNotes && (
                         <div className="text-zinc-500 italic">
                           "{account.verificationNotes}"
+                        </div>
+                      )}
+                      <div className="text-[10px] text-zinc-500 pt-1 border-t border-emerald-900/30">
+                        Nella v1 tutte le verifiche avvengono tramite convalida manuale dell'operatore (nessuna scrittura/connessione API automatica esterna).
+                      </div>
+                    </div>
+                  ) : account.status === 'revoked' ? (
+                    <div className="p-2.5 bg-rose-950/30 border border-rose-900/50 rounded-lg text-xs space-y-1.5">
+                      <div className="flex items-center gap-1.5 text-rose-400 font-medium">
+                        <ShieldAlert className="w-3.5 h-3.5" />
+                        Accesso Revocato / Scaduto
+                      </div>
+                      <div className="text-zinc-300">
+                        Revocato da <strong className="text-zinc-100">{account.revokerName || 'Operatore'}</strong>
+                        {account.revokedAt ? ` il ${new Date(account.revokedAt).toLocaleDateString('it-IT')}` : ''}
+                      </div>
+                      {account.revocationReason && (
+                        <div className="text-zinc-400">
+                          Motivo: <span className="text-zinc-300 italic">{account.revocationReason}</span>
+                        </div>
+                      )}
+
+                      {/* Historical verification audit is PRESERVED! */}
+                      {account.verifiedAt && (
+                        <div className="pt-1.5 mt-1 border-t border-rose-900/40 text-[11px] text-zinc-400 space-y-0.5">
+                          <div className="font-semibold text-zinc-300">Evidenza storica di verifica (Preservata):</div>
+                          <div>
+                            Precedentemente verificato da <span className="text-zinc-200">{account.verifierName || 'Operatore'}</span> il{' '}
+                            {new Date(account.verifiedAt).toLocaleDateString('it-IT')}
+                          </div>
+                          {account.verificationMethod && (
+                            <div className="text-zinc-500">Metodo storico: {account.verificationMethod}</div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -514,7 +580,7 @@ export function ProjectAccessesTab({
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => handleRevokeAccount(account.id)}
+                            onClick={() => openRevokeModal(account)}
                             className="h-7 px-2 text-amber-400 hover:text-amber-300 hover:bg-amber-950/40 text-xs"
                             title="Revoca Accesso"
                           >
@@ -765,6 +831,67 @@ export function ProjectAccessesTab({
               className="bg-emerald-600 hover:bg-emerald-700 text-white"
             >
               {isSubmitting ? 'Verifica in corso...' : 'Conferma Accesso Verificato'}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* Modal: Revoca Accesso Account */}
+      <Dialog
+        isOpen={isRevokeModalOpen}
+        onClose={() => setIsRevokeModalOpen(false)}
+        title="Revoca Accesso Account / Delega"
+        className="max-w-md"
+      >
+        <form onSubmit={handleRevokeAccountSubmit} className="space-y-4 pt-2">
+          {errorMessage && (
+            <div className="p-3 bg-red-950/50 border border-red-800 rounded-lg text-red-200 text-xs">
+              {errorMessage}
+            </div>
+          )}
+
+          <div className="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700/60 text-xs space-y-1">
+            <div className="font-semibold text-zinc-200">
+              Account da revocare:
+            </div>
+            <div className="text-zinc-300 font-medium">
+              {selectedAccount?.accountName} ({selectedAccount?.externalId || 'Nessun ID'})
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-zinc-300">Motivo della Revoca *</label>
+            <textarea
+              value={revokeForm.revocationReason}
+              onChange={(e) => setRevokeForm({ ...revokeForm, revocationReason: e.target.value })}
+              rows={3}
+              placeholder="es. Delega rimossa dal cliente su MCC / credenziali cambiate / conclusione incarico..."
+              required
+              className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-md text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-rose-500"
+            />
+          </div>
+
+          <div className="p-2.5 bg-zinc-900 border border-zinc-700/60 rounded-lg text-xs text-zinc-400 flex items-start gap-2">
+            <Info className="w-4 h-4 text-zinc-400 mt-0.5 flex-shrink-0" />
+            <span>
+              La revoca aggiorna lo stato corrente in <strong>Revocato / Scaduto</strong> ma <strong>conserva l'audit storico</strong> di chi ha eseguito la verifica originaria, data e metodo.
+            </span>
+          </div>
+
+          <div className="pt-3 flex justify-end gap-2 border-t border-zinc-800">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsRevokeModalOpen(false)}
+            >
+              Annulla
+            </Button>
+            <Button
+              type="submit"
+              disabled={isSubmitting}
+              className="bg-rose-600 hover:bg-rose-700 text-white"
+            >
+              {isSubmitting ? 'Revoca in corso...' : 'Conferma Revoca Accesso'}
             </Button>
           </div>
         </form>

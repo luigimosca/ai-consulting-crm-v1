@@ -787,10 +787,14 @@ export function initDatabase() {
       origin_client_request_id TEXT REFERENCES client_requests(id),
       origin_client_request_item_id TEXT REFERENCES client_request_items(id),
       evidence_document_id TEXT REFERENCES documents(id),
+      verification_type TEXT NOT NULL DEFAULT 'manual_operator',
       verification_method TEXT,
       verification_notes TEXT,
       verified_by_user_id TEXT REFERENCES users(id),
       verified_at TEXT,
+      revoked_at TEXT,
+      revoked_by_user_id TEXT REFERENCES users(id),
+      revocation_reason TEXT,
       notes TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -814,6 +818,10 @@ export function initDatabase() {
 
   // Migrazione retrocompatibile per colonne aggiuntive se le tabelle esistevano già
   const migrations = [
+    'ALTER TABLE client_platform_accounts ADD COLUMN verification_type TEXT NOT NULL DEFAULT "manual_operator"',
+    'ALTER TABLE client_platform_accounts ADD COLUMN revoked_at TEXT',
+    'ALTER TABLE client_platform_accounts ADD COLUMN revoked_by_user_id TEXT',
+    'ALTER TABLE client_platform_accounts ADD COLUMN revocation_reason TEXT',
     'ALTER TABLE quote_versions ADD COLUMN sender_snapshot_json TEXT',
     'ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT "active"',
     'ALTER TABLE users ADD COLUMN invited_by TEXT',
