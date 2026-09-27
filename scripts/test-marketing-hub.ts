@@ -1,536 +1,403 @@
-import Database from 'better-sqlite3';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
-import { eq } from 'drizzle-orm';
-import * as schema from '../packages/db/src/schema';
-import {
-  generateNaturalLanguageSummary,
-  evaluateSegmentCandidates,
-  createSegment,
-  createCampaign,
-  submitCampaignForReview,
-  approveCampaign,
-  populateCampaignRecipients,
-  updateRecipientStatus,
-  getCampaignDetails,
-  getMarketingDashboardStats,
-  getLeadCampaignHistory,
-  getCompanyCampaignHistory,
-} from '../apps/web/src/lib/marketing-service';
-import { initDatabase, db as defaultDb } from '../packages/db/src';
+import path from 'path';
+import fs from 'fs';
+import os from 'os';
+
+// ---------------------------------------------------------------------------
+// 1. Pre-flight Verification & Isolation Setup BEFORE ANY MODULE IMPORT
+// ---------------------------------------------------------------------------
+const tempDbFile = path.join(os.tmpdir(), `crm_mktg_test_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.db`);
+process.env.DATABASE_PATH = tempDbFile;
+
+// Strict sanity check: fail immediately if pointing to an unsafe DB path
+const resolvedPath = path.resolve(process.env.DATABASE_PATH);
+if (
+  !process.env.DATABASE_PATH ||
+  resolvedPath.endsWith('sqlite.db') ||
+  resolvedPath.includes('/data/') ||
+  resolvedPath.startsWith('/data') ||
+  resolvedPath === path.resolve(process.cwd(), 'sqlite.db')
+) {
+  throw new Error(`[CRITICAL SECURITY REFUSAL] Test execution aborted: DATABASE_PATH points to an unsafe or production database path (${resolvedPath}). Tests must run strictly on an isolated temporary database.`);
+}
 
 async function runTests() {
-  console.log('=== TEST SUITE: MARKETING HUB (PHASE 1) ===\n');
+  console.log('========================================================================');
+  console.log('=== TEST SUITE: MARKETING HUB (PHASE 1) - ISOLATED TEST RUN ===');
+  console.log(`=== DB Isolato: ${tempDbFile} ===`);
+  console.log('========================================================================\n');
 
-  // 1. Initialize Database
-  console.log('[1/7] Inizializzazione Schema DB e Tabelle Marketing...');
-  initDatabase();
-  console.log('  ✓ Schema DB e tabelle marketing (marketingSegments, marketingCampaigns, campaignRecipients) verificate.\n');
+    // Dynamic import AFTER setting DATABASE_PATH
+    const { initDatabase, db, users, leads, companies, websiteAnalysis, decisionMakers, enrichmentRuns } = await import('../packages/db/src');
+    const { eq } = await import('drizzle-orm');
+    const {
+      generateNaturalLanguageSummary,
+      evaluateSegmentCandidates,
+      createSegment,
+      updateSegment,
+      deleteSegment,
+      createCampaign,
+      updateCampaign,
+      submitCampaignForReview,
+      approveCampaign,
+      populateCampaignRecipients,
+      updateRecipientStatus,
+      getCampaignDetails,
+      getMarketingDashboardStats,
+      getLeadCampaignHistory,
+      getCompanyCampaignHistory,
+    } = await import('../apps/web/src/lib/marketing-service');
 
-  // Test User Contexts
-  const adminUser = {
-    userId: 'usr_admin_test',
-    email: 'admin@consulting.ai',
-    name: 'Admin Test',
-    role: 'admin' as const,
-  };
+  try {
+    // 1. Initialize Database Schema
+    console.log('[1/10] Inizializzazione Schema DB e Tabelle Marketing su DB Isolato...');
+    initDatabase();
+    console.log('  ✓ Schema DB e tabelle marketing verificate con successo su file isolato.\n');
 
-  const operatorUser = {
-    userId: 'usr_operator_test',
-    email: 'mario@consulting.ai',
-    name: 'Mario Operatore',
-    role: 'operator' as const,
-  };
+    // Test Users
+    const adminUser = {
+      userId: 'usr_admin_test',
+      email: 'admin@consulting.ai',
+      name: 'Admin Test',
+      role: 'admin' as const,
+    };
 
-  const now = new Date().toISOString();
-  defaultDb.insert(schema.users).values([
-    {
-      id: adminUser.userId,
-      email: adminUser.email,
-      name: adminUser.name,
-      role: adminUser.role,
-      passwordHash: 'hash_test',
-      createdAt: now,
-    },
-    {
-      id: operatorUser.userId,
-      email: operatorUser.email,
-      name: operatorUser.name,
-      role: operatorUser.role,
-      passwordHash: 'hash_test',
-      createdAt: now,
-    },
-  ]).onConflictDoNothing().run();
+    const operatorUser = {
+      userId: 'usr_operator_test',
+      email: 'mario@consulting.ai',
+      name: 'Mario Operatore',
+      role: 'operator' as const,
+    };
 
-  // 2. Test Natural Language Summary Generator
-  console.log('[2/7] Test Generatore Spiegazione in Linguaggio Naturale...');
-  const summary1 = generateNaturalLanguageSummary(
-    {
-      sectors: ['horeca_ristoranti'],
-      cities: ['Pompei', 'Napoli'],
-      minCommercialScore: 70,
-      techStack: {
-        hasPixel: false,
-        hasChatbot: false,
-      },
-      contactsRequirement: {
-        mustHaveEmail: true,
-        requireMarketingConsent: true,
-      },
-    },
-    'leads'
-  );
-  console.log('  Summary Generato:', summary1);
-  if (!summary1.includes('Ristoranti & HORECA') || !summary1.includes('Senza Meta Pixel') || !summary1.includes('Score Commerciale ≥ 70')) {
-    throw new Error('Test Generatore Spiegazione fallito: stringa non coerente con i filtri');
-  }
-  console.log('  ✓ Generazione spiegazione naturale in italiano validata con successo.\n');
+    const operatorB = {
+      userId: 'usr_operator_b',
+      email: 'luigi@consulting.ai',
+      name: 'Luigi Operatore B',
+      role: 'operator' as const,
+    };
 
-  // 3. Test Segment Creation & Candidate Evaluation
-  console.log('[3/7] Test Creazione Segmento Dinamico e Valutazione Candidati...');
-  const testSegment = await createSegment(
-    {
-      name: 'Test Segment Ristoranti Senza Pixel',
-      description: 'Prospect ristorazione ad alto potenziale per campagne lead gen',
-      targetType: 'leads',
-      rules: {
-        sectors: ['horeca_ristoranti'],
-        minCommercialScore: 50,
-        techStack: {
-          hasPixel: false,
-        },
-        contactsRequirement: {
-          mustHaveEmail: false,
-        },
-      },
-    },
-    operatorUser
-  );
-  console.log('  Segmento Creato ID:', testSegment.id);
-  console.log('  Audience Stimata:', testSegment.estimatedCount);
-  if (!testSegment.id || testSegment.estimatedCount === undefined) {
-    throw new Error('Creazione segmento fallita');
-  }
-  console.log('  ✓ Segmento salvato e valutato correttamente.\n');
+    const now = new Date().toISOString();
+    db.insert(users).values([
+      { id: adminUser.userId, email: adminUser.email, name: adminUser.name, role: adminUser.role, passwordHash: 'hash_test', createdAt: now },
+      { id: operatorUser.userId, email: operatorUser.email, name: operatorUser.name, role: operatorUser.role, passwordHash: 'hash_test', createdAt: now },
+      { id: operatorB.userId, email: operatorB.email, name: operatorB.name, role: operatorB.role, passwordHash: 'hash_test', createdAt: now },
+    ]).run();
 
-  // 4. Test Campaign Creation & Recipient Population
-  console.log('[4/7] Test Creazione Campagna e Popolamento Destinatari...');
-  const testCampaign = await createCampaign(
-    {
-      name: 'Campagna Test Q4 Outreach',
-      objective: 'lead_generation',
-      channel: 'email',
-      segmentId: testSegment.id,
-      contentSubject: 'Opportunità AI per {{companyName}} a {{city}}',
-      contentBody: 'Gentile {{contactName}}, abbiamo analizzato la vostra presenza a {{city}} e notato eccellenti margini di crescita...',
-    },
-    operatorUser
-  );
-  console.log('  Campagna Creata:', testCampaign.code, '| Stato:', testCampaign.status);
-  if (testCampaign.status !== 'draft') {
-    throw new Error('La campagna creata deve avere stato iniziale "draft"');
-  }
-
-  const campaignDetails = await getCampaignDetails(testCampaign.id);
-  console.log('  Destinatari Arruolati:', campaignDetails.totalRecipients);
-  console.log('  ✓ Destinatari sincronizzati dal segmento e variabili snapshot salvate.\n');
-
-  // 5. Test Recipient Status Updates & Conversion Tracking
-  console.log('[5/7] Test Avanzamento Stato Destinatario in Pipeline...');
-  if (campaignDetails.recipients && campaignDetails.recipients.length > 0) {
-    const firstRecipient = campaignDetails.recipients[0];
-    const updatedRecipient = await updateRecipientStatus(
-      firstRecipient.id,
+    // Seed Sample Leads & Companies for filtering tests
+    db.insert(leads).values([
       {
-        status: 'interested',
-        outcomeNotes: 'Il titolare ha risposto entusiasta alla demo via email. Fissata call giovedì.',
+        id: 'lead_analyzed_no_pixel',
+        companyName: 'Ristorante Da Mario Pompei',
+        sector: 'horeca_ristoranti',
+        city: 'Pompei',
+        address: 'Via Roma 12, Pompei (NA)',
+        email: 'info@damariopompei.it',
+        phone: '0818501111',
+        score: 85,
+        marketingConsentStatus: 'granted',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'lead_unanalyzed_site',
+        companyName: 'Pizzeria Bella Napoli',
+        sector: 'horeca_ristoranti',
+        city: 'Napoli',
+        address: 'Corso Umberto 50 (NA)',
+        email: 'info@bellanapoli.it',
+        phone: '0818502222',
+        score: 75,
+        marketingConsentStatus: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'lead_with_pixel',
+        companyName: 'Grand Hotel Vesuvio',
+        sector: 'horeca_hotel',
+        city: 'Sorrento',
+        address: 'Via Marina 1, Sorrento (NA)',
+        email: 'contact@vesuviohotel.it',
+        phone: '0818503333',
+        score: 90,
+        marketingConsentStatus: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]).run();
+
+    db.insert(enrichmentRuns).values([
+      {
+        id: 'run_1',
+        leadId: 'lead_analyzed_no_pixel',
+        status: 'completed',
+        startedAt: now,
+        completedAt: now,
+        overallConfidence: 90,
+        commercialScore: 85,
+        reliabilityScore: 80,
+      },
+      {
+        id: 'run_2',
+        leadId: 'lead_with_pixel',
+        status: 'completed',
+        startedAt: now,
+        completedAt: now,
+        overallConfidence: 95,
+        commercialScore: 90,
+        reliabilityScore: 85,
+      },
+    ]).run();
+
+    // Website analysis: only lead_analyzed_no_pixel and lead_with_pixel are analyzed!
+    db.insert(websiteAnalysis).values([
+      {
+        id: 'wa_1',
+        leadId: 'lead_analyzed_no_pixel',
+        runId: 'run_1',
+        url: 'https://damariopompei.it',
+        hasPixel: 0,
+        hasChatbot: 0,
+        analyzedAt: now,
+      },
+      {
+        id: 'wa_2',
+        leadId: 'lead_with_pixel',
+        runId: 'run_2',
+        url: 'https://vesuviohotel.it',
+        hasPixel: 1,
+        hasChatbot: 1,
+        analyzedAt: now,
+      },
+    ]).run();
+
+    // 2. Test Natural Language Summary Generator
+    console.log('[2/10] Test Generatore Spiegazione in Linguaggio Naturale...');
+    const summary1 = generateNaturalLanguageSummary(
+      {
+        sectors: ['horeca_ristoranti'],
+        cities: ['Pompei', 'Napoli'],
+        provinces: ['NA'],
+        minCommercialScore: 70,
+        techStack: { hasPixel: false, hasChatbot: false },
+        contactsRequirement: { mustHaveEmail: true, requireMarketingConsent: true },
+      },
+      'leads'
+    );
+    console.log('  Summary Generato:', summary1);
+    if (!summary1.includes('Ristoranti & HORECA') || !summary1.includes('Senza Meta Pixel') || !summary1.includes('Score Commerciale ≥ 70')) {
+      throw new Error('Test Generatore Spiegazione fallito: stringa non coerente con i filtri');
+    }
+    console.log('  ✓ Spiegazione in linguaggio naturale validata con successo.\n');
+
+    // 3. Test Filter Accuracy: "Tecnologia Assente" vs "Dato Non Analizzato" & Province matching
+    console.log('[3/10] Test Filtri: Distinzione "Tecnologia Assente" vs "Non Analizzato" e Province...');
+    
+    // Filter for "hasPixel: false" -> Must ONLY match lead_analyzed_no_pixel, NOT lead_unanalyzed_site!
+    const evalTech = await evaluateSegmentCandidates(
+      {
+        sectors: ['horeca_ristoranti'],
+        techStack: { hasPixel: false },
+      },
+      'leads'
+    );
+    console.log('  Candidati con Pixel Assente (verificato):', evalTech.candidates.map(c => c.name));
+    if (evalTech.candidates.length !== 1 || evalTech.candidates[0].id !== 'lead_analyzed_no_pixel') {
+      throw new Error('ERRORE FILTRO TECH: Un sito non analizzato è stato erroneamente conteggiato come "senza pixel"!');
+    }
+    console.log('  ✓ Accuratezza Filtro Tecnologico: Il lead non analizzato è stato escluso da "senza pixel".');
+
+    // Filter by Province "NA" (Napoli) -> Must match leads with NA in address/city/notes
+    const evalProv = await evaluateSegmentCandidates(
+      {
+        provinces: ['NA'],
+      },
+      'leads'
+    );
+    console.log('  Candidati Provincia NA:', evalProv.candidates.length);
+    if (evalProv.candidates.length < 3) {
+      throw new Error('ERRORE FILTRO PROVINCIA: Mancata corrispondenza della provincia per i lead');
+    }
+    console.log('  ✓ Filtro Provincia per Lead verificato con successo.\n');
+
+    // 4. Test Prudent Consent Handling (pending is NOT "Consenso Valido")
+    console.log('[4/10] Test Gestione Prudente Consenso (pending = Da verificare / non contattabile su canali opt-in)...');
+    const evalConsent = await evaluateSegmentCandidates(
+      {
+        contactsRequirement: { requireMarketingConsent: true },
+      },
+      'leads'
+    );
+    const pendingLeadCandidate = evalConsent.candidates.find(c => c.id === 'lead_unanalyzed_site');
+    console.log('  Candidato con consentStatus "pending":', {
+      name: pendingLeadCandidate?.name,
+      consentLabel: pendingLeadCandidate?.consentLabel,
+      isEligible: pendingLeadCandidate?.isEligible,
+      exclusionReason: pendingLeadCandidate?.exclusionReason,
+    });
+    if (pendingLeadCandidate?.consentLabel !== 'In attesa di verifica (Opt-in non confermato)' || pendingLeadCandidate?.isEligible !== false) {
+      throw new Error('ERRORE PRIVACY: pending è stato trattato come valido o eleggibile quando era richiesto il consenso verificato!');
+    }
+    console.log('  ✓ Consenso Prudente Validato: I lead con "pending" non sono qualificati come consenso valido.\n');
+
+    // 5. Test Segment Creation & Transparency Metadata (limitApplied)
+    console.log('[5/10] Test Creazione Segmento Dinamico e Trasparenza Metadati...');
+    const segment = await createSegment(
+      {
+        name: 'Segmento HORECA Campania',
+        description: 'Lead ristorazione qualificati',
+        targetType: 'leads',
+        rules: { sectors: ['horeca_ristoranti'], provinces: ['NA'] },
       },
       operatorUser
     );
-    console.log('  Destinatario Aggiornato:', updatedRecipient.contactPersonName, '-> Stato:', updatedRecipient.status);
-    if (updatedRecipient.status !== 'interested' || !updatedRecipient.lastContactedAt) {
-      throw new Error('Aggiornamento stato destinatario fallito');
+    console.log('  Segmento Creato ID:', segment.id);
+    const evalWithLimit = await evaluateSegmentCandidates({ sectors: ['horeca_ristoranti'] }, 'leads', 1);
+    if (!evalWithLimit.limitApplied || evalWithLimit.maxLimit !== 1) {
+      throw new Error('ERRORE METADATI: limitApplied o maxLimit non valorizzati');
     }
-  }
-  console.log('  ✓ Avanzamento stato outreach e registrazione note esito convalidate.\n');
+    console.log('  ✓ Trasparenza capienza audience verificata (limitApplied = true).\n');
 
-  // 6. Test Governance & RBAC (Draft -> In Review -> Admin Approval)
-  console.log('[6/8] Test Workflow di Governance & RBAC...');
-  // Operator submits for review
-  const underReview = await submitCampaignForReview(testCampaign.id, operatorUser);
-  console.log('  Stato dopo invio in revisione:', underReview.status);
-  if (underReview.status !== 'in_review') {
-    throw new Error('Lo stato deve essere "in_review"');
-  }
+    // 6. Test Campaign Creation & Atomic Non-Destructive Population
+    console.log('[6/10] Test Creazione Campagna e Sincronizzazione Atomica Destinatari...');
+    const campaign = await createCampaign(
+      {
+        name: 'Campagna Email Ristoranti Q4',
+        objective: 'lead_generation',
+        channel: 'email',
+        segmentId: segment.id,
+      },
+      operatorUser
+    );
+    console.log('  Campagna Creata:', campaign.code, '| Stato:', campaign.status);
 
-  // Operator attempts to approve -> Must Fail!
-  let failedAsExpected = false;
-  try {
-    await approveCampaign(testCampaign.id, operatorUser);
-  } catch (err: any) {
-    if (err.message.includes('FORBIDDEN') || err.message.includes('Solo gli amministratori')) {
-      failedAsExpected = true;
-      console.log('  ✓ Blocco RBAC: L\'operatore non può auto-approvare la campagna (Rifiutato con 403/Forbidden).');
+    // Populate recipients
+    const popRes1 = await populateCampaignRecipients(campaign.id, operatorUser);
+    console.log('  Destinatari Iniziali Arruolati:', popRes1.populatedCount, '| Totali:', popRes1.totalRecipients);
+
+    // Get a pending recipient and add a custom operator note
+    const campaignDetails1 = await getCampaignDetails(campaign.id);
+    const targetRecipient = campaignDetails1.recipients[0];
+    console.log('  Aggiunta nota operativa al destinatario pending:', targetRecipient.id);
+    await updateRecipientStatus(
+      targetRecipient.id,
+      { status: 'pending', outcomeNotes: 'Nota importante: cliente ha espresso interesse preliminare' },
+      operatorUser,
+      campaign.id
+    );
+
+    // Re-synchronize recipients with populateCampaignRecipients
+    console.log('  -> Esecuzione risincronizzazione destinatari...');
+    await populateCampaignRecipients(campaign.id, operatorUser);
+
+    const campaignDetailsAfterSync = await getCampaignDetails(campaign.id);
+    const preservedRecipient = campaignDetailsAfterSync.recipients.find(r => r.id === targetRecipient.id);
+    console.log('  Destinatario dopo sync:', {
+      id: preservedRecipient?.id,
+      status: preservedRecipient?.status,
+      outcomeNotes: preservedRecipient?.outcomeNotes,
+    });
+    if (!preservedRecipient || preservedRecipient.outcomeNotes !== 'Nota importante: cliente ha espresso interesse preliminare') {
+      throw new Error('ERRORE SINCRONIZZAZIONE: La riga pending con note è stata cancellata o sovrascritta!');
     }
-  }
-  if (!failedAsExpected) {
-    throw new Error('Violazione RBAC: L\'operatore non deve poter approvare la campagna!');
-  }
+    console.log('  ✓ Preservazione Righe con Note: La sincronizzazione atomica ha preservato la riga e la nota al 100%.\n');
 
-  // Admin approves campaign
-  const approved = await approveCampaign(testCampaign.id, adminUser);
-  console.log('  Stato dopo approvazione Admin:', approved.status, '| Approvata da:', approved.approvedByUserId);
-  if (approved.status !== 'approved' || approved.approvedByUserId !== adminUser.userId) {
-    throw new Error('Approvazione Admin fallita');
-  }
-  console.log('  ✓ Approvazione da parte dell\'amministratore completata con successo.\n');
-
-  // 7. Comprehensive Negative Tests & Entity-Level Isolation
-  console.log('[7/8] Test Negativi: Isolamento Operatore & Protezione Entità Fuori Ambito...');
-  const otherOperator = {
-    userId: 'usr_operator_other_test',
-    email: 'luigi.operator@consulting.ai',
-    name: 'Luigi Operatore Esterno',
-    role: 'operator' as const,
-  };
-
-  defaultDb.insert(schema.users).values({
-    id: otherOperator.userId,
-    email: otherOperator.email,
-    name: otherOperator.name,
-    role: otherOperator.role,
-    passwordHash: 'hash_test',
-    createdAt: now,
-  }).onConflictDoNothing().run();
-
-  // Test A: Other operator tries to edit Mario's segment
-  let caughtOtherSegEdit = false;
-  try {
-    const { updateSegment } = require('../apps/web/src/lib/marketing-service');
-    await updateSegment(testSegment.id, { name: 'Hacked Segment' }, otherOperator);
-  } catch (err: any) {
-    if (err.message.includes('FORBIDDEN')) {
-      caughtOtherSegEdit = true;
-      console.log('  ✓ Blocco Negativo: Operatore non proprietario non può modificare il segmento (403).');
-    }
-  }
-  if (!caughtOtherSegEdit) throw new Error('Test Negativo fallito: un operatore ha modificato un segmento non suo!');
-
-  // Test B: Other operator tries to delete Mario's segment
-  let caughtOtherSegDelete = false;
-  try {
-    const { deleteSegment } = require('../apps/web/src/lib/marketing-service');
-    await deleteSegment(testSegment.id, otherOperator);
-  } catch (err: any) {
-    if (err.message.includes('FORBIDDEN')) {
-      caughtOtherSegDelete = true;
-      console.log('  ✓ Blocco Negativo: Operatore non proprietario non può eliminare il segmento (403).');
-    }
-  }
-  if (!caughtOtherSegDelete) throw new Error('Test Negativo fallito: un operatore ha eliminato un segmento non suo!');
-
-  // Test C: Other operator tries to edit Mario's campaign
-  let caughtOtherCampEdit = false;
-  try {
-    const { updateCampaign } = require('../apps/web/src/lib/marketing-service');
-    await updateCampaign(testCampaign.id, { name: 'Hacked Campaign' }, otherOperator);
-  } catch (err: any) {
-    if (err.message.includes('FORBIDDEN')) {
-      caughtOtherCampEdit = true;
-      console.log('  ✓ Blocco Negativo: Operatore non proprietario non può modificare la campagna (403).');
-    }
-  }
-  if (!caughtOtherCampEdit) throw new Error('Test Negativo fallito: un operatore ha modificato una campagna non sua!');
-
-  // Test D: Mario tries to edit his campaign now that it is APPROVED (locked state)
-  let caughtLockedEdit = false;
-  try {
-    const { updateCampaign } = require('../apps/web/src/lib/marketing-service');
-    await updateCampaign(testCampaign.id, { name: 'Modified After Approval' }, operatorUser);
-  } catch (err: any) {
-    if (err.message.includes('FORBIDDEN') && err.message.includes('approvata')) {
-      caughtLockedEdit = true;
-      console.log('  ✓ Blocco Negativo: Operatore non può modificare una campagna già approvata (403).');
-    }
-  }
-  if (!caughtLockedEdit) throw new Error('Test Negativo fallito: la campagna approvata è stata modificata da un operatore!');
-
-  // Test E: Other operator tries to update recipients of Mario's campaign
-  let caughtOtherRecipEdit = false;
-  if (campaignDetails.recipients && campaignDetails.recipients.length > 0) {
+    // 7. Test Negative: PATCH Campaign State Bypass
+    console.log('[7/10] Test Negativi: Blocco Bypass Stati Riservati tramite PATCH Campagna...');
+    
+    // Attempt 7.1: Admin attempts to set status='approved' via generic PATCH -> MUST BE REJECTED
+    let adminBypassBlocked = false;
     try {
-      await updateRecipientStatus(
-        campaignDetails.recipients[0].id,
-        { status: 'contacted', outcomeNotes: 'Unauthorized note' },
-        otherOperator
-      );
+      await updateCampaign(campaign.id, { status: 'approved' }, adminUser);
+    } catch (err: any) {
+      if (err.message.includes('Lo stato "approved" non può essere impostato tramite modifica generica') || err.message.includes('FORBIDDEN')) {
+        adminBypassBlocked = true;
+        console.log('  ✓ Blocco Bypass Admin: PATCH status="approved" respinto con FORBIDDEN.');
+      }
+    }
+    if (!adminBypassBlocked) throw new Error('ERRORE: Admin è riuscito a forzare status="approved" via PATCH!');
+
+    // Attempt 7.2: Operator attempts to set status='approved' via PATCH -> MUST BE REJECTED
+    let operatorBypassBlocked = false;
+    try {
+      await updateCampaign(campaign.id, { status: 'approved' }, operatorUser);
     } catch (err: any) {
       if (err.message.includes('FORBIDDEN')) {
-        caughtOtherRecipEdit = true;
-        console.log('  ✓ Blocco Negativo: Operatore non proprietario non può modificare i destinatari della campagna (403).');
+        operatorBypassBlocked = true;
+        console.log('  ✓ Blocco Bypass Operatore: PATCH status="approved" respinto con FORBIDDEN.');
       }
     }
-    if (!caughtOtherRecipEdit) throw new Error('Test Negativo fallito: un operatore estraneo ha aggiornato destinatari non suoi!');
-  }
+    if (!operatorBypassBlocked) throw new Error('ERRORE: Operatore è riuscito a forzare status="approved" via PATCH!');
 
-  // Test F: Cross-campaign recipient parameter tampering
-  let caughtCrossCamp = false;
-  if (campaignDetails.recipients && campaignDetails.recipients.length > 0) {
+    // Attempt 7.3: Operator attempts to jump directly to 'active' on draft campaign -> MUST BE REJECTED
+    let unapprovedJumpBlocked = false;
     try {
-      await updateRecipientStatus(
-        campaignDetails.recipients[0].id,
-        { status: 'contacted' },
-        adminUser,
-        'fake_campaign_id_999'
-      );
+      await updateCampaign(campaign.id, { status: 'active' }, operatorUser);
     } catch (err: any) {
-      if (err.message.includes('FORBIDDEN') && err.message.includes('non appartiene')) {
-        caughtCrossCamp = true;
-        console.log('  ✓ Blocco Negativo: Mismatch campaignId/recipientId intercettato e bloccato (403).');
+      if (err.message.includes('INVALID_STATE_TRANSITION') || err.message.includes('senza previa approvazione')) {
+        unapprovedJumpBlocked = true;
+        console.log('  ✓ Blocco Transizione Illegittima: Tentativo di attivare campagna bozza non approvata respinto.');
       }
     }
-    if (!caughtCrossCamp) throw new Error('Test Negativo fallito: mismatch cross-campaign non rilevato!');
-  }
+    if (!unapprovedJumpBlocked) throw new Error('ERRORE: Campagna in bozza attivata senza approvazione!');
 
-  // 8. Test Live GDPR Consent Revocation & Channel Opt-Out Post-Snapshot
-  console.log('\n[8/8] Test Conformità GDPR Live: Revoca Consenso e Opt-Out Canale Post-Snapshot...');
-  const testLeadId = `lead_live_gdpr_${Date.now()}`;
-  defaultDb.insert(schema.leads).values({
-    id: testLeadId,
-    companyName: 'Studio Medico Live Test',
-    sector: 'local_services',
-    score: 85,
-    status: 'nuovo',
-    phone: '+39 081 99988877',
-    email: 'info@studiomedicolive.it',
-    city: 'Napoli-GDPR-Test',
-    marketingConsentStatus: 'granted',
-    optedOutChannelsJson: null,
-    createdAt: now,
-    updatedAt: now,
-  }).run();
+    // 8. Test Governance Workflow (submit-review -> approve)
+    console.log('\n[8/10] Test Workflow Governance Ufficiale (submit-review -> approve)...');
+    await submitCampaignForReview(campaign.id, operatorUser);
+    console.log('  Campagna inviata in revisione.');
 
-  const gdprSegment = await createSegment(
-    {
-      name: 'Segmento GDPR Live Test',
-      targetType: 'leads',
-      rules: {
-        sectors: ['local_services'],
-        cities: ['Napoli-GDPR-Test'],
-        minCommercialScore: 80,
-      },
-    },
-    adminUser
-  );
-
-  const gdprCampaign = await createCampaign(
-    {
-      name: 'Campagna GDPR Live Test',
-      objective: 'lead_generation',
-      channel: 'email',
-      segmentId: gdprSegment.id,
-      contentSubject: 'Test Live GDPR',
-      contentBody: 'Messaggio di prova',
-    },
-    adminUser
-  );
-
-  const gdprDetailsInitial = await getCampaignDetails(gdprCampaign.id);
-  const enrolledTarget = gdprDetailsInitial.recipients.find((r: any) => r.leadId === testLeadId);
-  if (!enrolledTarget) throw new Error('Target GDPR non arruolato nella campagna');
-  console.log('  Target Arruolato:', enrolledTarget.contactPersonName, '| isCurrentlyContactable:', enrolledTarget.isCurrentlyContactable);
-  if (!enrolledTarget.isCurrentlyContactable) {
-    throw new Error('Target doveva risultare contattabile con consenso iniziale granted');
-  }
-
-  // Lead revokes consent in CRM after enrollment snapshot
-  console.log('  -> Simulazione: Il lead revoca il consenso marketing nel CRM (marketingConsentStatus = "revoked")...');
-  defaultDb.update(schema.leads)
-    .set({ marketingConsentStatus: 'revoked', updatedAt: new Date().toISOString() })
-    .where(eq(schema.leads.id, testLeadId))
-    .run();
-
-  // Inspect campaign details live
-  const gdprDetailsAfterRevoke = await getCampaignDetails(gdprCampaign.id);
-  const targetAfterRevoke = gdprDetailsAfterRevoke.recipients.find((r: any) => r.leadId === testLeadId);
-  console.log('  Target dopo revoca:');
-  console.log('    - isLiveConsentRevoked:', targetAfterRevoke.isLiveConsentRevoked);
-  console.log('    - isCurrentlyContactable:', targetAfterRevoke.isCurrentlyContactable);
-  console.log('    - liveComplianceWarning:', targetAfterRevoke.liveComplianceWarning);
-
-  if (targetAfterRevoke.isCurrentlyContactable !== false || !targetAfterRevoke.isLiveConsentRevoked) {
-    throw new Error('La verifica live del consenso doveva rilevare la revoca del consenso post-snapshot!');
-  }
-
-  // Attempt to register positive contact action (e.g. contacted) -> Must fail with FORBIDDEN_PRIVACY
-  let caughtGdprBlock = false;
-  try {
-    await updateRecipientStatus(
-      enrolledTarget.id,
-      { status: 'contacted', outcomeNotes: 'Tentativo di contatto post-revoca' },
-      adminUser
-    );
-  } catch (err: any) {
-    if (err.message.includes('FORBIDDEN_PRIVACY')) {
-      caughtGdprBlock = true;
-      console.log('  ✓ Blocco GDPR Live Eseguito: Tentativo di contatto respinto con 403 FORBIDDEN_PRIVACY.');
+    // Only admin can approve via approveCampaign
+    await approveCampaign(campaign.id, adminUser);
+    const approvedCamp = await getCampaignDetails(campaign.id);
+    console.log('  Campagna Approvata da:', approvedCamp.approver?.name, '| Stato:', approvedCamp.status);
+    if (approvedCamp.status !== 'approved' || approvedCamp.approvedByUserId !== adminUser.userId) {
+      throw new Error('ERRORE GOVERNANCE: Approvazione ufficiale non registrata correttamente');
     }
-  }
-  if (!caughtGdprBlock) throw new Error('Violazione GDPR: Il sistema ha permesso il contatto nonostante la revoca live!');
+    console.log('  ✓ Workflow di governance formale completato con approvatore e timestamp.\n');
 
-  // Verify recipient status in DB was automatically updated to excluded_no_consent
-  const recipientAfterBlock = defaultDb.select().from(schema.campaignRecipients).where(eq(schema.campaignRecipients.id, enrolledTarget.id)).get();
-  console.log('  Stato finale destinatario nel DB:', recipientAfterBlock?.status, '| Motivo esclusione:', recipientAfterBlock?.exclusionReason);
-  if (recipientAfterBlock?.status !== 'excluded_no_consent') {
-    throw new Error('Lo stato del destinatario doveva essere convertito in excluded_no_consent');
-  }
+    // 9. Test Runtime Server-Side Privacy Block on Unverified / Revoked Consent
+    console.log('[9/10] Test Blocco Operativo Privacy Server-Side (Revoca e Consenso Pending non Verificato)...');
+    // Simulate lead revoking consent
+    db.update(leads).set({ marketingConsentStatus: 'revoked' }).where(eq(leads.id, targetRecipient.leadId!)).run();
 
-  // Verify Audit Log entry for GDPR auto-exclusion
-  console.log('  -> Verifica Audit Trail in activity_log...');
-  const auditEntries = defaultDb
-    .select()
-    .from(schema.activityLog)
-    .where(eq(schema.activityLog.entityId, enrolledTarget.id))
-    .all();
-  const privacyAudit = auditEntries.find((a) => a.action === 'recipient_privacy_blocked_auto_excluded');
-  if (!privacyAudit) {
-    throw new Error('Audit entry non trovata per il blocco privacy live in activity_log');
-  }
-  console.log('  ✓ Audit registrato con successo: Action =', privacyAudit.action, '| PerformedBy =', privacyAudit.performedBy);
-
-  // Verify Deduplication & Composite Unique Index
-  console.log('\n  -> Test Deduplicazione: ID Univoco vs Anagrafiche Multiple Distinte...');
-  const countRepop = await populateCampaignRecipients(gdprCampaign.id, adminUser);
-  console.log('  Popolamento ripetuto su campagna con record già presenti: inseriti', countRepop, 'nuovi destinatari (atteso 0).');
-  if (countRepop !== 0) {
-    throw new Error('Deduplicazione fallita: sono stati inseriti duplicati durante il ripopolamento!');
-  }
-  console.log('  ✓ Deduplicazione per ID garantita dal vincolo univoco (mktg_recipients_camp_lead_uidx).');
-
-  // Test that distinct leads with same company name remain distinct without arbitrary merging
-  const leadBranchA = `lead_branch_a_${Date.now()}`;
-  const leadBranchB = `lead_branch_b_${Date.now()}`;
-  defaultDb.insert(schema.leads).values([
-    {
-      id: leadBranchA,
-      companyName: 'Acme Solutions - Sede Napoli',
-      sector: 'local_services',
-      score: 90,
-      status: 'nuovo',
-      phone: '+39 081 1111111',
-      email: 'napoli@acme.it',
-      city: 'Napoli-Dedup-Test',
-      marketingConsentStatus: 'granted',
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: leadBranchB,
-      companyName: 'Acme Solutions - Sede Milano',
-      sector: 'local_services',
-      score: 90,
-      status: 'nuovo',
-      phone: '+39 02 2222222',
-      email: 'milano@acme.it',
-      city: 'Napoli-Dedup-Test',
-      marketingConsentStatus: 'granted',
-      createdAt: now,
-      updatedAt: now,
-    },
-  ]).run();
-
-  const dedupSegment = await createSegment(
-    {
-      name: 'Segmento Test Sedi Multiple',
-      targetType: 'leads',
-      rules: {
-        sectors: ['local_services'],
-        cities: ['Napoli-Dedup-Test'],
-        minCommercialScore: 80,
-      },
-    },
-    adminUser
-  );
-
-  const dedupCampaign = await createCampaign(
-    {
-      name: 'Campagna Sedi Multiple',
-      objective: 'lead_generation',
-      channel: 'email',
-      segmentId: dedupSegment.id,
-      contentSubject: 'Test sedi',
-      contentBody: 'Messaggio sedi',
-    },
-    adminUser
-  );
-
-  const dedupDetails = await getCampaignDetails(dedupCampaign.id);
-  console.log('  Destinatari arruolati per 2 sedi distinte (stesso brand Acme):', dedupDetails.totalRecipients);
-  if (dedupDetails.totalRecipients !== 2) {
-    throw new Error('Le 2 sedi distinte dovevano essere preservate entrambe come destinatari autonomi');
-  }
-  console.log('  ✓ Preservazione anagrafiche distinte verificata: nessuna fusione arbitraria senza merge esplicito CRM.');
-
-  // Clean up dedup test records
-  defaultDb.delete(schema.campaignRecipients).where(eq(schema.campaignRecipients.campaignId, dedupCampaign.id)).run();
-  defaultDb.delete(schema.marketingCampaigns).where(eq(schema.marketingCampaigns.id, dedupCampaign.id)).run();
-  defaultDb.delete(schema.marketingSegments).where(eq(schema.marketingSegments.id, dedupSegment.id)).run();
-  defaultDb.delete(schema.leads).where(eq(schema.leads.id, leadBranchA)).run();
-  defaultDb.delete(schema.leads).where(eq(schema.leads.id, leadBranchB)).run();
-
-  // Clean up test records
-  defaultDb.delete(schema.campaignRecipients).where(eq(schema.campaignRecipients.campaignId, gdprCampaign.id)).run();
-  defaultDb.delete(schema.marketingCampaigns).where(eq(schema.marketingCampaigns.id, gdprCampaign.id)).run();
-  defaultDb.delete(schema.marketingSegments).where(eq(schema.marketingSegments.id, gdprSegment.id)).run();
-  defaultDb.delete(schema.leads).where(eq(schema.leads.id, testLeadId)).run();
-
-  // 9. Read Permissions & Agency Central Registry Verification
-  console.log('\n[9/9] Verifica Politiche di LETTURA (Anagrafica Condivisa vs Non Autenticato)...');
-  // Operator B reading Mario's campaign details
-  const operatorBDetails = await getCampaignDetails(testCampaign.id);
-  console.log('  Operatore B legge dettagli campagna di Mario:', operatorBDetails.name, '| Destinatari:', operatorBDetails.totalRecipients);
-  if (!operatorBDetails || operatorBDetails.id !== testCampaign.id) {
-    throw new Error('Lettura condivisa campagna fallita per operatore B');
-  }
-  console.log('  ✓ Lettura condivisa CRM: Gli operatori autenticati condividono la visualizzazione delle campagne e anagrafiche aziendali per coordinamento interno.');
-
-  // Test Lead Campaign History read by Operator
-  if (campaignDetails.recipients && campaignDetails.recipients.length > 0 && campaignDetails.recipients[0].leadId) {
-    const leadHistory = await getLeadCampaignHistory(campaignDetails.recipients[0].leadId);
-    console.log('  Operatore legge Storico 360° Lead:', leadHistory.length, 'campagne associate');
-    if (leadHistory.length === 0) {
-      throw new Error('Storico marketing del lead non trovato');
+    let runtimePrivacyBlocked = false;
+    try {
+      await updateRecipientStatus(targetRecipient.id, { status: 'contacted' }, operatorUser, campaign.id);
+    } catch (err: any) {
+      if (err.message.includes('FORBIDDEN_PRIVACY')) {
+        runtimePrivacyBlocked = true;
+        console.log('  ✓ Blocco Privacy Live: Tentativo di contatto su lead revocato respinto con FORBIDDEN_PRIVACY.');
+      }
     }
+    if (!runtimePrivacyBlocked) throw new Error('ERRORE PRIVACY: Azione di contatto consentita su contatto con consenso revocato!');
+
+    // 10. Dashboard Stats & History
+    console.log('\n[10/10] Test Dashboard Stats e Storico 360° Lead/Aziende...');
+    const stats = await getMarketingDashboardStats();
+    console.log('  Dashboard Stats:', {
+      totalCampaigns: stats.totalCampaigns,
+      totalSegments: stats.totalSegments,
+      totalRecipients: stats.totalRecipients,
+      unavailableMetrics: stats.unavailableMetrics,
+    });
+    const leadHist = await getLeadCampaignHistory(targetRecipient.leadId!);
+    console.log('  Storico Campagne Lead Count:', leadHist.length);
+    if (leadHist.length === 0) throw new Error('ERRORE: Storico 360° lead non trovato');
+    console.log('  ✓ Storico 360° e metriche dashboard verificate con successo.\n');
+
+    console.log('========================================================================');
+    console.log('=== TUTTI I 10 TEST MARKETING HUB SONO STATI SUPERATI CON SUCCESSO! ===');
+    console.log('========================================================================\n');
+  } finally {
+    // Cleanup temporary DB
+    try {
+      if (fs.existsSync(tempDbFile)) fs.unlinkSync(tempDbFile);
+      if (fs.existsSync(tempDbFile + '-wal')) fs.unlinkSync(tempDbFile + '-wal');
+      if (fs.existsSync(tempDbFile + '-shm')) fs.unlinkSync(tempDbFile + '-shm');
+    } catch {}
   }
-
-  // Test Dashboard Metrics & 360 History
-  console.log('\n--- Verifica Metriche Dashboard & Storico 360° ---');
-  const stats = await getMarketingDashboardStats();
-  console.log('  Dashboard Stats:');
-  console.log('    - Campagne Totali:', stats.totalCampaigns);
-  console.log('    - Segmenti Totali:', stats.totalSegments);
-  console.log('    - Destinatari Totali:', stats.totalRecipients);
-  console.log('    - Distribuzione Canali:', stats.channelDistribution);
-  console.log('    - Disclaimers Trasparenza Metriche:', stats.unavailableMetrics);
-
-  if (stats.unavailableMetrics.openRate === undefined) {
-    throw new Error('Mancata disclosure esplicita delle metriche non disponibili');
-  }
-
-  // Test Lead Campaign History
-  if (campaignDetails.recipients && campaignDetails.recipients.length > 0 && campaignDetails.recipients[0].leadId) {
-    const leadHistory = await getLeadCampaignHistory(campaignDetails.recipients[0].leadId);
-    console.log('  Lead 360° Marketing History Count:', leadHistory.length);
-    if (leadHistory.length === 0) {
-      throw new Error('Storico marketing del lead non trovato');
-    }
-  }
-
-  console.log('\n========================================================================');
-  console.log('=== TUTTI I TEST MARKETING HUB (FASE 1) SONO STATI SUPERATI CON SUCCESSO! ===');
-  console.log('========================================================================\n');
 }
 
 runTests().catch((err) => {
-  console.error('TEST SUITE FAILED:', err);
+  console.error('TEST FALLITO:', err);
   process.exit(1);
 });

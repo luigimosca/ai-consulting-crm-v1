@@ -63,7 +63,7 @@ if (!fs.existsSync(dir)) {
 }
 
 // If persistent volume /data/sqlite.db doesn't exist yet, seed it from /app/sqlite.db or local sqlite.db
-if (!fs.existsSync(dbPath)) {
+if (dbPath === '/data/sqlite.db' && !fs.existsSync(dbPath)) {
   const seedCandidates = [
     '/app/sqlite.db',
     path.resolve(process.cwd(), 'sqlite.db'),

@@ -12,8 +12,13 @@ export async function POST(
     const user = await requireAuth(['admin', 'operator']);
     const { id } = await params;
 
-    const count = await populateCampaignRecipients(id, user);
-    return NextResponse.json({ success: true, populatedCount: count });
+    const result = await populateCampaignRecipients(id, user);
+    return NextResponse.json({
+      success: true,
+      populatedCount: result.populatedCount,
+      totalRecipients: result.totalRecipients,
+      limitApplied: result.limitApplied,
+    });
   } catch (error: any) {
     if (error?.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Non autenticato' }, { status: 401 });

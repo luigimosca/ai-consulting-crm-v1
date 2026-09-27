@@ -223,11 +223,13 @@ export interface SegmentCandidate {
   targetType: 'leads' | 'companies';
   sector: string;
   city?: string | null;
+  province?: string | null;
   email?: string | null;
   phone?: string | null;
   website?: string | null;
   score?: number | null;
   marketingConsentStatus: string;
+  consentLabel: string;
   isEligible: boolean;
   exclusionReason?: string | null;
 }
@@ -236,7 +238,7 @@ export async function evaluateSegmentCandidates(
   rules: SegmentRules,
   targetType: 'leads' | 'companies' = 'leads',
   limit: number = 100
-): Promise<{ totalCount: number; eligibleCount: number; candidates: SegmentCandidate[] }> {
+): Promise<{ totalCount: number; eligibleCount: number; limitApplied: boolean; maxLimit: number; candidates: SegmentCandidate[] }> {
   const isLeads = targetType === 'leads';
 
   let rawList: any[] = [];
@@ -258,7 +260,9 @@ export async function evaluateSegmentCandidates(
     const itemName = isLeads ? item.companyName : item.name;
     const itemSector = item.sector;
     const itemCity = item.city;
-    const itemProvince = isLeads ? null : item.province;
+    const itemProvince = isLeads ? (item.province || null) : item.province;
+    const itemAddress = item.address || '';
+    const itemNotes = item.notes || '';
     const itemSource = item.source;
     const itemStatus = isLeads ? item.status : null;
     const itemScore = isLeads ? item.score : (item.rating ? Math.round(item.rating * 20) : 0);
@@ -275,16 +279,33 @@ export async function evaluateSegmentCandidates(
       if (!rules.sectors.includes(itemSector)) continue;
     }
 
-    // Filter 2: Cities / Provinces
+    // Filter 2: Cities / Provinces (applicable to both leads and companies)
     if (rules.cities && rules.cities.length > 0) {
       if (!itemCity || !rules.cities.some((c) => itemCity.toLowerCase().includes(c.toLowerCase()))) {
         continue;
       }
     }
-    if (rules.provinces && rules.provinces.length > 0 && itemProvince) {
-      if (!rules.provinces.some((p) => itemProvince.toLowerCase() === p.toLowerCase())) {
-        continue;
+    if (rules.provinces && rules.provinces.length > 0) {
+      let matchesProvince = false;
+      const targetProvs = rules.provinces.map((p) => p.toLowerCase());
+      
+      if (itemProvince && targetProvs.includes(itemProvince.toLowerCase())) {
+        matchesProvince = true;
+      } else {
+        // Fallback: check province acronym in city, address or notes (e.g. "Napoli", "Pompei (NA)", "MI")
+        const searchBlob = `${itemCity || ''} ${itemAddress} ${itemNotes}`.toLowerCase();
+        for (const p of targetProvs) {
+          if (
+            searchBlob.includes(`(${p})`) ||
+            searchBlob.includes(` ${p} `) ||
+            searchBlob.includes(p)
+          ) {
+            matchesProvince = true;
+            break;
+          }
+        }
       }
+      if (!matchesProvince) continue;
     }
 
     // Filter 3: Lead Statuses (only for leads)
@@ -305,53 +326,91 @@ export async function evaluateSegmentCandidates(
       if (!itemSource || !rules.sources.includes(itemSource)) continue;
     }
 
-    // Filter 6: Tech stack filters (via website_analysis)
+    // Filter 6: Tech stack filters (Distinguishing "Tecnologia Assente" from "Dato Non Analizzato")
     if (rules.techStack) {
-      const latestAnalysis = websiteAnalyses
-        .filter((w) => (isLeads ? w.leadId === itemId : false))
-        .sort((a, b) => (b.analyzedAt > a.analyzedAt ? 1 : -1))[0];
+      let latestAnalysis: any = null;
+      let companyTechStack: any = null;
+
+      if (isLeads) {
+        latestAnalysis = websiteAnalyses
+          .filter((w) => w.leadId === itemId)
+          .sort((a, b) => (b.analyzedAt > a.analyzedAt ? 1 : -1))[0];
+      } else {
+        if ((item as any).techStackJson) {
+          try {
+            companyTechStack = JSON.parse((item as any).techStackJson);
+          } catch {}
+        }
+        if (!companyTechStack && itemWebsite) {
+          const cleanDomain = itemWebsite.replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase();
+          latestAnalysis = websiteAnalyses
+            .filter((w) => w.url && w.url.toLowerCase().includes(cleanDomain))
+            .sort((a, b) => (b.analyzedAt > a.analyzedAt ? 1 : -1))[0];
+        }
+      }
+
+      const hasAnalysisData = Boolean(latestAnalysis || companyTechStack);
+
+      // RULE: If tech stack criteria are specified, un-analyzed websites do NOT match "technology absent".
+      // They are unknown/unanalyzed, not confirmed absent.
+      if (!hasAnalysisData) {
+        continue;
+      }
 
       if (rules.techStack.cms && rules.techStack.cms.length > 0) {
-        if (!latestAnalysis || !latestAnalysis.cms || !rules.techStack.cms.includes(latestAnalysis.cms)) {
+        const detectedCms = latestAnalysis?.cms || companyTechStack?.cms;
+        const cmsList = Array.isArray(detectedCms) ? detectedCms : (detectedCms ? [detectedCms] : []);
+        if (!cmsList.some((c: string) => rules.techStack!.cms!.includes(c))) {
           continue;
         }
       }
       if (rules.techStack.hasPixel !== undefined) {
-        const hasPixel = latestAnalysis ? Boolean(latestAnalysis.hasPixel) : false;
-        if (hasPixel !== rules.techStack.hasPixel) continue;
+        const actualPixel = latestAnalysis ? Boolean(latestAnalysis.hasPixel) : Boolean(companyTechStack?.hasPixel);
+        if (actualPixel !== rules.techStack.hasPixel) continue;
       }
       if (rules.techStack.hasChatbot !== undefined) {
-        const hasChatbot = latestAnalysis ? Boolean(latestAnalysis.hasChatbot) : false;
-        if (hasChatbot !== rules.techStack.hasChatbot) continue;
+        const actualChatbot = latestAnalysis ? Boolean(latestAnalysis.hasChatbot) : Boolean(companyTechStack?.hasChatbot);
+        if (actualChatbot !== rules.techStack.hasChatbot) continue;
       }
       if (rules.techStack.hasWhatsapp !== undefined) {
-        const hasWhatsapp = latestAnalysis ? Boolean(latestAnalysis.hasWhatsapp) : false;
-        if (hasWhatsapp !== rules.techStack.hasWhatsapp) continue;
+        const actualWhatsapp = latestAnalysis ? Boolean(latestAnalysis.hasWhatsapp) : Boolean(companyTechStack?.hasWhatsapp);
+        if (actualWhatsapp !== rules.techStack.hasWhatsapp) continue;
       }
       if (rules.techStack.hasBooking !== undefined) {
-        const hasBooking = latestAnalysis ? Boolean(latestAnalysis.hasBooking) : false;
-        if (hasBooking !== rules.techStack.hasBooking) continue;
+        const actualBooking = latestAnalysis ? Boolean(latestAnalysis.hasBooking) : Boolean(companyTechStack?.hasBooking);
+        if (actualBooking !== rules.techStack.hasBooking) continue;
       }
       if (rules.techStack.isEcommerce !== undefined) {
-        const isEcom = latestAnalysis ? Boolean(latestAnalysis.isEcommerce) : false;
-        if (isEcom !== rules.techStack.isEcommerce) continue;
+        const actualEcom = latestAnalysis ? Boolean(latestAnalysis.isEcommerce) : Boolean(companyTechStack?.isEcommerce);
+        if (actualEcom !== rules.techStack.isEcommerce) continue;
       }
     }
 
     // Eligibility check for contact requirements and GDPR consent
     let isEligible = true;
     let exclusionReason: string | null = null;
+    let consentLabel = 'In attesa di verifica';
 
-    if (consentStatus === 'revoked') {
+    if (consentStatus === 'granted') {
+      consentLabel = 'Consenso Verificato (Opt-in)';
+    } else if (consentStatus === 'revoked') {
+      consentLabel = 'Consenso Revocato (Opt-out)';
       isEligible = false;
       exclusionReason = 'Consenso revocato (Opt-out)';
-    } else if (rules.contactsRequirement?.requireMarketingConsent && consentStatus !== 'granted') {
-      isEligible = false;
-      exclusionReason = 'Consenso marketing non confermato';
-    } else if (rules.contactsRequirement?.mustHaveEmail && (!itemEmail || !itemEmail.includes('@'))) {
+    } else if (consentStatus === 'pending') {
+      consentLabel = 'In attesa di verifica (Opt-in non confermato)';
+      if (rules.contactsRequirement?.requireMarketingConsent) {
+        isEligible = false;
+        exclusionReason = 'Consenso in attesa di verifica (Opt-in non confermato)';
+      }
+    } else if (consentStatus === 'not_applicable') {
+      consentLabel = 'Non applicabile';
+    }
+
+    if (isEligible && rules.contactsRequirement?.mustHaveEmail && (!itemEmail || !itemEmail.includes('@'))) {
       isEligible = false;
       exclusionReason = 'Email assente o non valida';
-    } else if (rules.contactsRequirement?.mustHavePhone && !itemPhone) {
+    } else if (isEligible && rules.contactsRequirement?.mustHavePhone && !itemPhone) {
       isEligible = false;
       exclusionReason = 'Telefono assente';
     }
@@ -371,21 +430,26 @@ export async function evaluateSegmentCandidates(
       targetType,
       sector: itemSector,
       city: itemCity,
+      province: itemProvince,
       email: itemEmail,
       phone: itemPhone,
       website: itemWebsite,
       score: itemScore,
       marketingConsentStatus: consentStatus,
+      consentLabel,
       isEligible,
       exclusionReason,
     });
   }
 
   const eligibleCount = filteredCandidates.filter((c) => c.isEligible).length;
+  const limitApplied = filteredCandidates.length > limit;
 
   return {
     totalCount: filteredCandidates.length,
     eligibleCount,
+    limitApplied,
+    maxLimit: limit,
     candidates: filteredCandidates.slice(0, limit),
   };
 }
@@ -588,9 +652,14 @@ export async function updateCampaign(
   const existing = db.select().from(marketingCampaigns).where(eq(marketingCampaigns.id, id)).get();
   if (!existing) throw new Error('NOT_FOUND: Campagna non trovata');
 
-  // RBAC check: only admin can force status to 'approved' directly
-  if (input.status === 'approved' && user.role !== 'admin') {
-    throw new Error('FORBIDDEN: Solo gli amministratori possono approvare una campagna');
+  // Strict Governance 1: 'approved' status CANNOT be forced or set via generic PATCH, even by admin!
+  if (input.status === 'approved') {
+    throw new Error('FORBIDDEN: Lo stato "approved" non può essere impostato tramite modifica generica. Utilizzare l\'azione dedicata di approvazione (/api/marketing/campaigns/[id]/approve)');
+  }
+
+  // Strict Governance 2: 'in_review' status CANNOT be set via generic PATCH; must use submitCampaignForReview
+  if (input.status === 'in_review') {
+    throw new Error('FORBIDDEN: Lo stato "in_review" non può essere impostato tramite modifica generica. Utilizzare l\'azione dedicata di invio in revisione (/api/marketing/campaigns/[id]/submit-review)');
   }
 
   // Operator entity ownership check
@@ -601,6 +670,29 @@ export async function updateCampaign(
   // Operator state lifecycle check: cannot modify locked states
   if (user.role !== 'admin' && ['approved', 'active', 'archived'].includes(existing.status)) {
     throw new Error('FORBIDDEN: Solo gli amministratori possono modificare una campagna già approvata, attiva o archiviata');
+  }
+
+  // Validate operational lifecycle state transitions if status is changing
+  if (input.status && input.status !== existing.status) {
+    if (['draft', 'in_review'].includes(existing.status) && ['scheduled', 'active', 'completed'].includes(input.status)) {
+      throw new Error(`INVALID_STATE_TRANSITION: Impossibile attivare o pianificare una campagna in stato "${existing.status}" senza previa approvazione.`);
+    }
+
+    const validTransitions: Record<string, string[]> = {
+      draft: ['draft'],
+      in_review: ['draft'],
+      approved: ['scheduled', 'active', 'paused', 'draft'],
+      scheduled: ['active', 'paused', 'archived'],
+      active: ['paused', 'completed', 'archived'],
+      paused: ['active', 'archived', 'completed'],
+      completed: ['archived'],
+      archived: [],
+    };
+
+    const allowed = validTransitions[existing.status] || [];
+    if (!allowed.includes(input.status)) {
+      throw new Error(`INVALID_STATE_TRANSITION: Transizione non consentita da "${existing.status}" a "${input.status}".`);
+    }
   }
 
   const now = new Date().toISOString();
@@ -721,10 +813,11 @@ export async function approveCampaign(
 
 export async function populateCampaignRecipients(
   campaignId: string,
-  user: UserSessionPayload
-): Promise<number> {
+  user: UserSessionPayload,
+  batchLimit: number = 2000
+): Promise<{ populatedCount: number; totalRecipients: number; limitApplied: boolean }> {
   const campaign = db.select().from(marketingCampaigns).where(eq(marketingCampaigns.id, campaignId)).get();
-  if (!campaign || !campaign.segmentId) return 0;
+  if (!campaign || !campaign.segmentId) return { populatedCount: 0, totalRecipients: 0, limitApplied: false };
 
   if (user.role !== 'admin' && campaign.ownerUserId && campaign.ownerUserId !== user.userId) {
     throw new Error('FORBIDDEN: Non puoi popolare i destinatari di una campagna appartenente a un altro operatore');
@@ -735,38 +828,92 @@ export async function populateCampaignRecipients(
   }
 
   const segment = db.select().from(marketingSegments).where(eq(marketingSegments.id, campaign.segmentId)).get();
-  if (!segment) return 0;
+  if (!segment) return { populatedCount: 0, totalRecipients: 0, limitApplied: false };
 
   const rules: SegmentRules = JSON.parse(segment.rulesJson);
-  const { candidates } = await evaluateSegmentCandidates(
+  const evaluation = await evaluateSegmentCandidates(
     rules,
     segment.targetType as 'leads' | 'companies',
-    500
+    batchLimit
   );
 
   const now = new Date().toISOString();
 
-  // Delete previous pending un-worked recipients for this campaign to refresh
-  db.delete(campaignRecipients)
-    .where(and(eq(campaignRecipients.campaignId, campaignId), eq(campaignRecipients.status, 'pending')))
-    .run();
-
+  // ATOMIC & NON-DESTRUCTIVE SYNCHRONIZATION
+  // 1. Fetch all existing recipients
   const existingRecipients = db
     .select()
     .from(campaignRecipients)
     .where(eq(campaignRecipients.campaignId, campaignId))
     .all();
 
-  const existingIds = new Set(
-    existingRecipients.map((r) => (r.leadId ? `lead_${r.leadId}` : `comp_${r.companyId}`))
+  const candidateKeyMap = new Map(
+    evaluation.candidates.map((c) => [c.targetType === 'leads' ? `lead_${c.id}` : `comp_${c.id}`, c])
   );
 
+  let updatedCount = 0;
   let insertedCount = 0;
 
-  for (const c of candidates) {
-    const key = c.targetType === 'leads' ? `lead_${c.id}` : `comp_${c.id}`;
-    if (existingIds.has(key)) continue;
+  // 2. Identify rows to preserve vs update in-place vs prune
+  for (const existing of existingRecipients) {
+    const key = existing.leadId ? `lead_${existing.leadId}` : `comp_${existing.companyId}`;
+    const matchingCandidate = candidateKeyMap.get(key);
 
+    const hasHistory =
+      existing.status !== 'pending' ||
+      (existing.outcomeNotes && existing.outcomeNotes.trim().length > 0) ||
+      existing.lastContactedAt !== null;
+
+    if (matchingCandidate) {
+      // In-place update: candidate is still in segment.
+      // If the row is an un-worked pending row, update its snapshot, email, phone, and exclusion status in-place
+      if (!hasHistory && existing.status === 'pending') {
+        let recipientStatus: typeof campaignRecipients.$inferInsert.status = 'pending';
+        let exclusionReason: string | null = null;
+
+        if (!matchingCandidate.isEligible) {
+          if (matchingCandidate.exclusionReason?.includes('Consenso') || matchingCandidate.exclusionReason?.includes('opt-out')) {
+            recipientStatus = 'excluded_no_consent';
+          } else {
+            recipientStatus = 'excluded_missing_contact';
+          }
+          exclusionReason = matchingCandidate.exclusionReason || null;
+        }
+
+        db.update(campaignRecipients)
+          .set({
+            recipientEmail: matchingCandidate.email || null,
+            recipientPhone: matchingCandidate.phone || null,
+            contactPersonName: matchingCandidate.name,
+            status: recipientStatus,
+            exclusionReason,
+            customVariablesSnapshotJson: JSON.stringify({
+              companyName: matchingCandidate.name,
+              sector: matchingCandidate.sector,
+              city: matchingCandidate.city || '',
+              score: matchingCandidate.score || 0,
+            }),
+            updatedAt: now,
+          })
+          .where(eq(campaignRecipients.id, existing.id))
+          .run();
+
+        updatedCount++;
+      }
+      // Consume candidate from candidateKeyMap so we don't insert duplicate
+      candidateKeyMap.delete(key);
+    } else {
+      // Candidate is no longer in segment.
+      // If it has NO history and NO notes, safe to prune to keep audience accurate.
+      // If it HAS history or notes, 100% PRESERVE IT!
+      if (!hasHistory && existing.status === 'pending') {
+        db.delete(campaignRecipients).where(eq(campaignRecipients.id, existing.id)).run();
+      }
+    }
+  }
+
+  // 3. Insert newly discovered candidates
+  for (const [key, c] of candidateKeyMap.entries()) {
     const recipientId = `recip_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
     let recipientStatus: typeof campaignRecipients.$inferInsert.status = 'pending';
@@ -806,15 +953,23 @@ export async function populateCampaignRecipients(
         })
         .run();
 
-      existingIds.add(key);
       insertedCount++;
     } catch (err) {
-      // In case of unique index race or duplicate candidate ID
-      console.warn(`Skipping duplicate recipient for campaign ${campaignId}: ${key}`, err);
+      console.warn(`[populateCampaignRecipients] Skipping duplicate candidate for campaign ${campaignId}: ${key}`, err);
     }
   }
 
-  return insertedCount;
+  const finalRecipients = db
+    .select({ count: sql<number>`count(*)` })
+    .from(campaignRecipients)
+    .where(eq(campaignRecipients.campaignId, campaignId))
+    .get();
+
+  return {
+    populatedCount: insertedCount + updatedCount,
+    totalRecipients: finalRecipients ? Number(finalRecipients.count) : 0,
+    limitApplied: evaluation.limitApplied,
+  };
 }
 
 export async function updateRecipientStatus(
@@ -867,13 +1022,22 @@ export async function updateRecipientStatus(
     }
   }
 
-  const isLiveRevoked = liveConsent === 'revoked' || isOptedOutOnChannel;
+  // PRUDENT ELIGIBILITY & PRIVACY ENFORCEMENT:
+  // 1. If consent is explicitly revoked or channel opted-out -> blocked
+  // 2. If consent is 'pending' on channels requiring explicit opt-in (e.g. whatsapp, strict email) -> blocked as unverified
+  const isRevoked = liveConsent === 'revoked' || isOptedOutOnChannel;
+  const isUnverifiedPending = liveConsent === 'pending' && ['whatsapp', 'email'].includes(campaign.channel);
   const isPositiveContactAction = ['contacted', 'interested', 'replied', 'converted'].includes(input.status);
 
-  if (isLiveRevoked && isPositiveContactAction) {
-    const reason = liveConsent === 'revoked'
-      ? 'il contatto ha revocato il consenso privacy successivamente all\'arruolamento'
-      : `il contatto ha escluso il canale (${campaign.channel}) successivamente all\'arruolamento`;
+  if ((isRevoked || isUnverifiedPending) && isPositiveContactAction) {
+    let reason = '';
+    if (liveConsent === 'revoked') {
+      reason = 'il contatto ha revocato il consenso privacy successivamente all\'arruolamento';
+    } else if (isOptedOutOnChannel) {
+      reason = `il contatto ha escluso il canale (${campaign.channel}) successivamente all\'arruolamento`;
+    } else {
+      reason = `il consenso è in attesa di verifica (necessario opt-in confermato prima del contatto sul canale ${campaign.channel})`;
+    }
 
     // Automatically update recipient record to excluded_no_consent
     const now = new Date().toISOString();
@@ -988,13 +1152,18 @@ export async function getCampaignDetails(id: string) {
 
     const isOptedOutOnChannel = Array.isArray(optedOutChannels) && optedOutChannels.includes(campaign.channel);
     const isLiveConsentRevoked = liveConsent === 'revoked' || isOptedOutOnChannel;
-    const isCurrentlyContactable = !isLiveConsentRevoked && r.status !== 'excluded_missing_contact';
+    
+    // Prudent contactability: 'pending' is NOT contactable on channels requiring opt-in
+    const isConsentPendingUnverified = liveConsent === 'pending' && ['whatsapp', 'email'].includes(campaign.channel);
+    const isCurrentlyContactable = !isLiveConsentRevoked && !isConsentPendingUnverified && r.status !== 'excluded_missing_contact' && r.status !== 'excluded_no_consent';
 
     let liveComplianceWarning: string | null = null;
     if (liveConsent === 'revoked') {
       liveComplianceWarning = 'Consenso privacy revocato dal contatto post-snapshot.';
     } else if (isOptedOutOnChannel) {
       liveComplianceWarning = `Il contatto ha escluso le comunicazioni per il canale ${campaign.channel}.`;
+    } else if (isConsentPendingUnverified) {
+      liveComplianceWarning = 'Consenso in attesa di verifica (Opt-in non confermato): necessario accertamento prima del contatto.';
     }
 
     return {

@@ -1,7 +1,16 @@
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { chromium, type Browser, type Page } from 'playwright';
 import http from 'http';
+
+// Pre-flight database path validation
+if (process.env.DATABASE_PATH) {
+  const resolved = path.resolve(process.env.DATABASE_PATH);
+  if (resolved.includes('/data/') || resolved.startsWith('/data')) {
+    throw new Error(`[SECURITY REFUSAL] E2E script cannot run against production /data path: ${resolved}`);
+  }
+}
 
 const ARTIFACT_DIR = 'C:/Users/windows11/.gemini/antigravity/brain/4ecd613a-1ced-4e2a-98fc-3b31d1ca2046';
 const BASE_URL = 'http://localhost:3005';

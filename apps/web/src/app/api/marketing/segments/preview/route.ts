@@ -25,6 +25,8 @@ export async function POST(request: Request) {
       summary,
       totalCount: evaluation.totalCount,
       eligibleCount: evaluation.eligibleCount,
+      limitApplied: evaluation.limitApplied,
+      maxLimit: evaluation.maxLimit,
       candidates: evaluation.candidates,
     });
   } catch (error: any) {
