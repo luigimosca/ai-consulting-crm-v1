@@ -867,64 +867,65 @@ export async function populateCampaignRecipients(
   let updatedCount = 0;
   let insertedCount = 0;
 
-  // 2. Identify rows to preserve vs update in-place vs prune
-  for (const existing of existingRecipients) {
-    const key = existing.leadId ? `lead_${existing.leadId}` : `comp_${existing.companyId}`;
-    const matchingCandidate = candidateKeyMap.get(key);
+  // Execute all modifications atomically in a single SQLite transaction
+  db.transaction((tx) => {
+    // 2. Identify rows to preserve vs update in-place vs prune
+    for (const existing of existingRecipients) {
+      const key = existing.leadId ? `lead_${existing.leadId}` : `comp_${existing.companyId}`;
+      const matchingCandidate = candidateKeyMap.get(key);
 
-    const hasActivity = loggedEntityIds.has(existing.id);
-    const hasHistory =
-      existing.status !== 'pending' ||
-      Boolean(existing.outcomeNotes && existing.outcomeNotes.trim().length > 0) ||
-      existing.lastContactedAt !== null ||
-      hasActivity;
+      const hasActivity = loggedEntityIds.has(existing.id);
+      const hasHistory =
+        existing.status !== 'pending' ||
+        Boolean(existing.outcomeNotes && existing.outcomeNotes.trim().length > 0) ||
+        existing.lastContactedAt !== null ||
+        hasActivity;
 
-    if (matchingCandidate) {
-      // In-place update: candidate is still in segment.
-      // If the row is an un-worked pending row, update its snapshot, email, phone, and exclusion status in-place
-      if (!hasHistory && existing.status === 'pending') {
-        let recipientStatus: typeof campaignRecipients.$inferInsert.status = 'pending';
-        let exclusionReason: string | null = null;
+      if (matchingCandidate) {
+        // In-place update: candidate is still in segment.
+        // If the row is an un-worked pending row, update its snapshot, email, phone, and exclusion status in-place
+        if (!hasHistory && existing.status === 'pending') {
+          let recipientStatus: typeof campaignRecipients.$inferInsert.status = 'pending';
+          let exclusionReason: string | null = null;
 
-        if (!matchingCandidate.isEligible) {
-          if (matchingCandidate.exclusionReason?.includes('Consenso') || matchingCandidate.exclusionReason?.includes('opt-out')) {
-            recipientStatus = 'excluded_no_consent';
-          } else {
-            recipientStatus = 'excluded_missing_contact';
+          if (!matchingCandidate.isEligible) {
+            if (matchingCandidate.exclusionReason?.includes('Consenso') || matchingCandidate.exclusionReason?.includes('opt-out')) {
+              recipientStatus = 'excluded_no_consent';
+            } else {
+              recipientStatus = 'excluded_missing_contact';
+            }
+            exclusionReason = matchingCandidate.exclusionReason || null;
           }
-          exclusionReason = matchingCandidate.exclusionReason || null;
+
+          tx.update(campaignRecipients)
+            .set({
+              recipientEmail: matchingCandidate.email || null,
+              recipientPhone: matchingCandidate.phone || null,
+              contactPersonName: matchingCandidate.name,
+              status: recipientStatus,
+              exclusionReason,
+              customVariablesSnapshotJson: JSON.stringify({
+                companyName: matchingCandidate.name,
+                sector: matchingCandidate.sector,
+                city: matchingCandidate.city || '',
+                score: matchingCandidate.score || 0,
+              }),
+              updatedAt: now,
+            })
+            .where(and(eq(campaignRecipients.id, existing.id), eq(campaignRecipients.campaignId, campaignId)))
+            .run();
+
+          updatedCount++;
         }
-
-        db.update(campaignRecipients)
-          .set({
-            recipientEmail: matchingCandidate.email || null,
-            recipientPhone: matchingCandidate.phone || null,
-            contactPersonName: matchingCandidate.name,
-            status: recipientStatus,
-            exclusionReason,
-            customVariablesSnapshotJson: JSON.stringify({
-              companyName: matchingCandidate.name,
-              sector: matchingCandidate.sector,
-              city: matchingCandidate.city || '',
-              score: matchingCandidate.score || 0,
-            }),
-            updatedAt: now,
-          })
-          .where(eq(campaignRecipients.id, existing.id))
-          .run();
-
-        updatedCount++;
-      }
-      // Consume candidate from candidateKeyMap so we don't insert duplicate
-      candidateKeyMap.delete(key);
-    } else {
-      // Candidate is no longer in segment.
-      // If it has NO history, NO notes, and NO audit logs, safe to prune to keep audience accurate.
-      // If it HAS history, notes, timestamp, or activity logs, 100% PRESERVE IT!
-      if (!hasHistory && existing.status === 'pending') {
-        // Audit log the pruning for traceability & reversibility
-        try {
-          db.insert(activityLog)
+        // Consume candidate from candidateKeyMap so we don't insert duplicate
+        candidateKeyMap.delete(key);
+      } else {
+        // Candidate is no longer in segment.
+        // If it has NO history, NO notes, and NO audit logs, prune atomically with mandatory audit logging.
+        // If it HAS history, notes, timestamp, or activity logs, 100% PRESERVE IT!
+        if (!hasHistory && existing.status === 'pending') {
+          // Mandatory audit log in the SAME transaction: if this insert fails, transaction aborts and rolls back completely
+          tx.insert(activityLog)
             .values({
               id: `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
               entityType: 'campaign_recipient',
@@ -945,33 +946,31 @@ export async function populateCampaignRecipients(
               createdAt: now,
             })
             .run();
-        } catch {}
 
-        db.delete(campaignRecipients)
-          .where(and(eq(campaignRecipients.id, existing.id), eq(campaignRecipients.campaignId, campaignId)))
-          .run();
+          tx.delete(campaignRecipients)
+            .where(and(eq(campaignRecipients.id, existing.id), eq(campaignRecipients.campaignId, campaignId)))
+            .run();
+        }
       }
     }
-  }
 
-  // 3. Insert newly discovered candidates
-  for (const [key, c] of candidateKeyMap.entries()) {
-    const recipientId = `recip_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    // 3. Insert newly discovered candidates
+    for (const [key, c] of candidateKeyMap.entries()) {
+      const recipientId = `recip_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-    let recipientStatus: typeof campaignRecipients.$inferInsert.status = 'pending';
-    let exclusionReason: string | null = null;
+      let recipientStatus: typeof campaignRecipients.$inferInsert.status = 'pending';
+      let exclusionReason: string | null = null;
 
-    if (!c.isEligible) {
-      if (c.exclusionReason?.includes('Consenso') || c.exclusionReason?.includes('opt-out')) {
-        recipientStatus = 'excluded_no_consent';
-      } else {
-        recipientStatus = 'excluded_missing_contact';
+      if (!c.isEligible) {
+        if (c.exclusionReason?.includes('Consenso') || c.exclusionReason?.includes('opt-out')) {
+          recipientStatus = 'excluded_no_consent';
+        } else {
+          recipientStatus = 'excluded_missing_contact';
+        }
+        exclusionReason = c.exclusionReason || null;
       }
-      exclusionReason = c.exclusionReason || null;
-    }
 
-    try {
-      db.insert(campaignRecipients)
+      tx.insert(campaignRecipients)
         .values({
           id: recipientId,
           campaignId,
@@ -996,10 +995,8 @@ export async function populateCampaignRecipients(
         .run();
 
       insertedCount++;
-    } catch (err) {
-      console.warn(`[populateCampaignRecipients] Skipping duplicate candidate for campaign ${campaignId}: ${key}`, err);
     }
-  }
+  });
 
   const finalRecipients = db
     .select({ count: sql<number>`count(*)` })

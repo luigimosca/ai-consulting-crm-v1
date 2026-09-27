@@ -22,7 +22,7 @@ if (
 
 async function runFinalVerifications() {
   console.log('========================================================================');
-  console.log('=== TEST SUITE: 4 VERIFICHE FINALI MARKETING HUB (FASE 1) ===');
+  console.log('=== TEST SUITE: 5 VERIFICHE FINALI MARKETING HUB (FASE 1) ===');
   console.log(`=== DB Isolato: ${tempDbFile} ===`);
   console.log('========================================================================\n');
 
@@ -559,8 +559,136 @@ async function runFinalVerifications() {
     console.log('  ✓ Isolamento Cross-Campagna: Nessun record o destinatario di Campagna B è stato toccato o alterato.');
     console.log('  ✓ TEST 4 SUPERATO CON SUCCESSO.\n');
 
+    // -------------------------------------------------------------------------
+    // TEST 5: Transazione Atomica: Rollback Completo e Preservazione Destinatario in Caso di Fallimento Audit Log
+    // -------------------------------------------------------------------------
+    console.log('[TEST 5/5] Transazione Atomica: Rollback e Preservazione Destinatario su Errore Audit Log...');
+
+    const leadAtomicId = `lead_atomic_${Date.now()}`;
+    db.insert(leads).values({
+      id: leadAtomicId,
+      companyName: 'Azienda Test Rollback Atomico',
+      sector: 'sector_atomic_test',
+      score: 80,
+      status: 'nuovo',
+      city: 'Salerno',
+      email: 'atomic@azienda.it',
+      marketingConsentStatus: 'granted',
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+
+    const segmentAtomic = await createSegment({
+      name: 'Segmento Test Atomico',
+      targetType: 'leads',
+      rules: { sectors: ['sector_atomic_test'] },
+    }, operatorA);
+
+    const campaignAtomic = await createCampaign({
+      name: 'Campagna Test Atomica',
+      objective: 'lead_generation',
+      channel: 'email',
+      segmentId: segmentAtomic.id,
+    }, operatorA);
+
+    // Initial enrollment
+    await populateCampaignRecipients(campaignAtomic.id, operatorA);
+    const initialAtomicDetails = await getCampaignDetails(campaignAtomic.id);
+    if (initialAtomicDetails.totalRecipients !== 1) {
+      throw new Error('Arruolamento iniziale per test atomico fallito');
+    }
+    const recipAtomic = initialAtomicDetails.recipients[0];
+    console.log('  Destinatario arruolato per test atomico:', recipAtomic.id, '| Status:', recipAtomic.status);
+
+    // Modify segment so the lead drops out of the segment
+    await updateSegment(segmentAtomic.id, {
+      rules: { sectors: ['settore_modificato_nessun_match'] },
+    }, operatorA);
+
+    // Install an intentional SQLite trigger that makes INSERT on activity_log fail for this entity
+    console.log('  -> Installazione trigger SQLite per simulare errore di scrittura nell\'audit log...');
+    const triggerDb = new Database(tempDbFile);
+    try {
+      triggerDb.exec(`
+        CREATE TRIGGER IF NOT EXISTS test_simulate_audit_failure BEFORE INSERT ON activity_log
+        FOR EACH ROW
+        WHEN NEW.action = 'recipient_pruned_out_of_segment' AND NEW.entity_id = '${recipAtomic.id}'
+        BEGIN
+          SELECT RAISE(FAIL, 'SIMULATED_AUDIT_LOG_DATABASE_ERROR');
+        END;
+      `);
+    } finally {
+      triggerDb.close();
+    }
+
+    // Call populateCampaignRecipients -> MUST THROW SIMULATED_AUDIT_LOG_DATABASE_ERROR
+    console.log('  -> Esecuzione risincronizzazione con fallimento forzato dell\'audit log...');
+    let caughtSimulatedError = false;
+    try {
+      await populateCampaignRecipients(campaignAtomic.id, operatorA);
+    } catch (err: any) {
+      if (err.message.includes('SIMULATED_AUDIT_LOG_DATABASE_ERROR')) {
+        caughtSimulatedError = true;
+        console.log('  ✓ Errore di Audit Rilevato e Non Ignorato: Eccezione intercettata.');
+      } else {
+        throw err;
+      }
+    }
+    if (!caughtSimulatedError) {
+      throw new Error('ERRORE: L\'errore di audit log è stato ignorato o non ha interrotto l\'esecuzione!');
+    }
+
+    // VERIFY ATOMIC ROLLBACK: Recipient MUST STILL EXIST with the EXACT SAME ID, status, and data!
+    const recipientAfterFailedAudit = db
+      .select()
+      .from(campaignRecipients)
+      .where(eq(campaignRecipients.id, recipAtomic.id))
+      .get();
+
+    if (!recipientAfterFailedAudit) {
+      throw new Error('GRAVE VIOLAZIONE ATOMICITÀ: Il destinatario è stato cancellato anche se l\'audit log è fallito!');
+    }
+    if (recipientAfterFailedAudit.status !== 'pending' || recipientAfterFailedAudit.recipientEmail !== 'atomic@azienda.it') {
+      throw new Error('ERRORE ATOMICITÀ: I dati del destinatario sono stati alterati durante il rollback!');
+    }
+    console.log('  ✓ Atomicità e Rollback Dimostrati: Il destinatario è rimasto intatto nel DB (ID:', recipientAfterFailedAudit.id, ', Status:', recipientAfterFailedAudit.status, ').');
+
+    // Remove the failure trigger
+    const cleanTriggerDb = new Database(tempDbFile);
+    try {
+      cleanTriggerDb.exec(`DROP TRIGGER IF EXISTS test_simulate_audit_failure;`);
+    } finally {
+      cleanTriggerDb.close();
+    }
+
+    // Now re-run populateCampaignRecipients with working audit log
+    console.log('  -> Ripetizione risincronizzazione con audit log funzionante...');
+    await populateCampaignRecipients(campaignAtomic.id, operatorA);
+
+    const recipientAfterSuccessfulAudit = db
+      .select()
+      .from(campaignRecipients)
+      .where(eq(campaignRecipients.id, recipAtomic.id))
+      .get();
+
+    if (recipientAfterSuccessfulAudit) {
+      throw new Error('ERRORE: Il destinatario non è stato rimosso dopo il ripristino dell\'audit!');
+    }
+
+    const auditAfterSuccess = db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.entityId, recipAtomic.id))
+      .get();
+
+    if (!auditAfterSuccess || auditAfterSuccess.action !== 'recipient_pruned_out_of_segment' || !auditAfterSuccess.beforeJson) {
+      throw new Error('ERRORE: Audit log non registrato correttamente con beforeJson dopo risincronizzazione!');
+    }
+    console.log('  ✓ Sincronizzazione Riuscita: Destinatario rimosso e audit log registrato con beforeJson integrale.');
+    console.log('  ✓ TEST 5 SUPERATO CON SUCCESSO.\n');
+
     console.log('========================================================================');
-    console.log('=== TUTTI I 4 TEST FINALI SONO STATI SUPERATI CON SUCCESSO AL 100%! ===');
+    console.log('=== TUTTI I 5 TEST FINALI SONO STATI SUPERATI CON SUCCESSO AL 100%! ===');
     console.log('========================================================================\n');
   } finally {
     try {
