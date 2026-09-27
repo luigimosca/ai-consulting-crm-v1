@@ -352,6 +352,13 @@ export function canUserAccessPlatformAccount(
 
   if (!account) return false;
 
+  const minRole: ProjectRole =
+    action === 'delete'
+      ? 'manager'
+      : action === 'edit' || action === 'verify'
+      ? 'editor'
+      : 'viewer';
+
   // Find all projects linked directly to this account
   const linkedProjects = db
     .select({ projectId: projectPlatformAccountLinks.projectId })
@@ -361,23 +368,22 @@ export function canUserAccessPlatformAccount(
 
   const linkedProjectIds = linkedProjects.map((lp) => lp.projectId);
 
-  // Also include all projects belonging to the company
+  // If the account is linked to specific projects, user MUST have access to at least one of those linked projects!
+  if (linkedProjectIds.length > 0) {
+    return linkedProjectIds.some((pId) => checkUserProjectAccess(user, pId, minRole));
+  }
+
+  // If unlinked company account draft, check if user has access to any project of the company
   const companyProjects = db
     .select({ id: projects.id })
     .from(projects)
     .where(eq(projects.companyId, account.companyId))
     .all();
 
-  const allRelevantProjectIds = Array.from(
-    new Set([...linkedProjectIds, ...companyProjects.map((cp) => cp.id)])
-  );
-
-  if (allRelevantProjectIds.length === 0) {
+  if (companyProjects.length === 0) {
     return false;
   }
 
-  const minRole: ProjectRole = action === 'delete' ? 'manager' : action === 'edit' || action === 'verify' ? 'editor' : 'viewer';
-
-  return allRelevantProjectIds.some((pId) => checkUserProjectAccess(user, pId, minRole));
+  return companyProjects.some((cp) => checkUserProjectAccess(user, cp.id, minRole));
 }
 

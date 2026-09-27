@@ -242,6 +242,21 @@ export function ProjectAccessesTab({
     }
   };
 
+  const handleRevokeAccount = async (accountId: string) => {
+    try {
+      const res = await fetch(`/api/accounts/${accountId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'revoked', notes: 'Accesso revocato dall\'operatore' }),
+      });
+      if (res.ok) {
+        fetchAccounts();
+      }
+    } catch (err) {
+      console.error('Error revoking account:', err);
+    }
+  };
+
   // Filter accounts
   const filteredAccounts = accounts.filter((acc) => {
     const config = PLATFORM_CATEGORIES[acc.platformType] || { group: 'other' };
@@ -495,7 +510,18 @@ export function ProjectAccessesTab({
 
                     {isManagerOrEditor && (
                       <div className="flex items-center gap-1">
-                        {account.status !== 'verified_active' && (
+                        {account.status === 'verified_active' ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleRevokeAccount(account.id)}
+                            className="h-7 px-2 text-amber-400 hover:text-amber-300 hover:bg-amber-950/40 text-xs"
+                            title="Revoca Accesso"
+                          >
+                            <ShieldAlert className="w-3.5 h-3.5 mr-1" />
+                            Revoca
+                          </Button>
+                        ) : (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -503,10 +529,11 @@ export function ProjectAccessesTab({
                               setSelectedAccount(account);
                               setIsVerifyModalOpen(true);
                             }}
-                            className="h-7 px-2 text-blue-400 hover:text-blue-300 hover:bg-blue-950/40"
+                            className="h-7 px-2 text-blue-400 hover:text-blue-300 hover:bg-blue-950/40 text-xs"
                             title="Verifica Accesso"
                           >
-                            <ShieldCheck className="w-3.5 h-3.5" />
+                            <ShieldCheck className="w-3.5 h-3.5 mr-1" />
+                            Verifica
                           </Button>
                         )}
                         {(currentUserRole === 'admin' || currentUserRole === 'manager') && (

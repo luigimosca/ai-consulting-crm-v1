@@ -152,6 +152,13 @@ export async function getCompanyPlatformAccounts(companyId: string, user: UserSe
       .where(eq(projectPlatformAccountLinks.accountId, acc.id))
       .all();
 
+    if (user.role !== 'admin' && links.length > 0) {
+      const hasAccessToAnyLinked = links.some((l) => checkUserProjectAccess(user, l.projectId, 'viewer'));
+      if (!hasAccessToAnyLinked) {
+        continue; // Hide account exclusive to other projects
+      }
+    }
+
     let verifierName = null;
     if (acc.verifiedByUserId) {
       const verifier = db.select({ name: users.name }).from(users).where(eq(users.id, acc.verifiedByUserId)).get();
@@ -202,7 +209,39 @@ export async function getProjectPlatformAccounts(projectId: string, user: UserSe
     .orderBy(desc(clientPlatformAccounts.createdAt))
     .all();
 
-  return companyAccounts.map((acc) => {
+  // Find all project links for these accounts
+  const allLinks = db
+    .select({
+      accountId: projectPlatformAccountLinks.accountId,
+      projectId: projectPlatformAccountLinks.projectId,
+    })
+    .from(projectPlatformAccountLinks)
+    .all();
+
+  const linksByAccount = new Map<string, string[]>();
+  for (const l of allLinks) {
+    if (!linksByAccount.has(l.accountId)) linksByAccount.set(l.accountId, []);
+    linksByAccount.get(l.accountId)!.push(l.projectId);
+  }
+
+  // Filter accounts:
+  // - If account is linked to this project: always visible to operator on this project
+  // - If user is global admin: all accounts visible
+  // - If account is NOT linked to this project:
+  //   * If it is linked to OTHER project(s): operator must have access to at least one of those other projects, otherwise hidden.
+  //   * If it is not linked to any project (generic company account draft): visible to company operators.
+  const visibleAccounts = companyAccounts.filter((acc) => {
+    if (linkedMap.has(acc.id)) return true;
+    if (user.role === 'admin') return true;
+
+    const otherProjectIds = linksByAccount.get(acc.id) || [];
+    if (otherProjectIds.length > 0) {
+      return otherProjectIds.some((otherPid) => checkUserProjectAccess(user, otherPid, 'viewer'));
+    }
+    return true;
+  });
+
+  return visibleAccounts.map((acc) => {
     const linkInfo = linkedMap.get(acc.id);
     let verifierName = null;
     if (acc.verifiedByUserId) {
