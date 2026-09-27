@@ -20,7 +20,8 @@ import {
   FolderKanban,
   CheckSquare,
   Files,
-  Workflow
+  Workflow,
+  Settings
 } from 'lucide-react';
 import { cn, APP_VERSION } from '@/lib/utils';
 
@@ -110,6 +111,12 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
       href: '/crm/process-templates',
       icon: Workflow,
       active: pathname.startsWith('/crm/process-templates'),
+    },
+    {
+      label: 'Impostazioni',
+      href: '/crm/settings',
+      icon: Settings,
+      active: pathname.startsWith('/crm/settings'),
     },
   ];
 
@@ -294,30 +301,32 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
                   })}
                 </div>
 
-                <div>
-                  <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-purple-400">
-                    Area Admin
+                {(!user || user.role === 'admin') && (
+                  <div>
+                    <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-purple-400">
+                      Area Admin
+                    </div>
+                    {adminNav.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onClick={closeDrawer}
+                          className={cn(
+                            'flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                            item.active
+                              ? 'bg-purple-600/15 text-purple-300 border border-purple-500/30 font-semibold'
+                              : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/80'
+                          )}
+                        >
+                          <Icon className={cn('h-4 w-4', item.active ? 'text-purple-400' : 'text-slate-400')} />
+                          <span>{item.label}</span>
+                        </Link>
+                      );
+                    })}
                   </div>
-                  {adminNav.map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        onClick={closeDrawer}
-                        className={cn(
-                          'flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
-                          item.active
-                            ? 'bg-purple-600/15 text-purple-300 border border-purple-500/30 font-semibold'
-                            : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/80'
-                        )}
-                      >
-                        <Icon className={cn('h-4 w-4', item.active ? 'text-purple-400' : 'text-slate-400')} />
-                        <span>{item.label}</span>
-                      </Link>
-                    );
-                  })}
-                </div>
+                )}
 
                 <div className="pt-2 border-t border-slate-800">
                   <Link
@@ -499,29 +508,31 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
               })}
             </div>
 
-            <div>
-              <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-purple-400">
-                Area Admin
+            {(!user || user.role === 'admin') && (
+              <div>
+                <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-purple-400">
+                  Area Admin
+                </div>
+                {adminNav.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={cn(
+                        'flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+                        item.active
+                          ? 'bg-purple-600/15 text-purple-300 border border-purple-500/30 font-semibold'
+                          : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/80'
+                      )}
+                    >
+                      <Icon className={cn('h-4 w-4', item.active ? 'text-purple-400' : 'text-slate-400')} />
+                      <span>{item.label}</span>
+                    </Link>
+                  );
+                })}
               </div>
-              {adminNav.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={cn(
-                      'flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
-                      item.active
-                        ? 'bg-purple-600/15 text-purple-300 border border-purple-500/30 font-semibold'
-                        : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/80'
-                    )}
-                  >
-                    <Icon className={cn('h-4 w-4', item.active ? 'text-purple-400' : 'text-slate-400')} />
-                    <span>{item.label}</span>
-                  </Link>
-                );
-              })}
-            </div>
+            )}
 
             <div className="pt-2 border-t border-slate-800/60">
               <Link

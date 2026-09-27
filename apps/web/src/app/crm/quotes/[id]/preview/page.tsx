@@ -18,6 +18,7 @@ export default function QuotePreviewPage({
   const [items, setItems] = useState<any[]>([]);
   const [lead, setLead] = useState<any>(null);
   const [company, setCompany] = useState<any>(null);
+  const [sender, setSender] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -30,6 +31,7 @@ export default function QuotePreviewPage({
           setItems(data.items || []);
           setLead(data.lead || null);
           setCompany(data.company || null);
+          setSender(data.senderSettings || null);
         }
       } catch (err) {
         console.error(err);
@@ -51,6 +53,47 @@ export default function QuotePreviewPage({
   const clientEmail = lead?.email || company?.email || '';
   const clientPhone = lead?.phone || company?.phone || '';
 
+  // Active logo determination
+  const logoChoice = sender?.quoteLogoChoice || 'primary';
+  const logoDocId =
+    logoChoice === 'dark'
+      ? sender?.logoDarkDocumentId
+      : logoChoice === 'primary'
+      ? sender?.logoDocumentId
+      : null;
+
+  const brandDisplayName = sender?.brandName || sender?.legalName || 'AI Agency';
+  const legalDisplayName = sender?.legalName
+    ? sender?.legalForm
+      ? `${sender.legalName} ${sender.legalForm}`
+      : sender.legalName
+    : '';
+
+  const addressLine = [
+    sender?.legalAddress,
+    sender?.postalCode && sender?.city ? `${sender.postalCode} ${sender.city}` : sender?.city,
+    sender?.province ? `(${sender.province})` : null,
+    sender?.country && sender.country !== 'IT' ? sender.country : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
+  const taxLine = [
+    sender?.vatId ? `P.IVA ${sender.vatId}` : null,
+    sender?.fiscalCode && sender.fiscalCode !== sender.vatId ? `C.F. ${sender.fiscalCode}` : null,
+    sender?.sdiCode ? `SDI: ${sender.sdiCode}` : null,
+  ]
+    .filter(Boolean)
+    .join(' • ');
+
+  const contactLine = [
+    sender?.adminEmail ? `Email: ${sender.adminEmail}` : null,
+    sender?.pec ? `PEC: ${sender.pec}` : null,
+    sender?.phone ? `Tel: ${sender.phone}` : null,
+  ]
+    .filter(Boolean)
+    .join(' • ');
+
   return (
     <div className="min-h-screen bg-slate-950 p-4 sm:p-8 print:p-0 print:bg-white print:text-black">
       {/* Non-printable top action bar */}
@@ -70,25 +113,66 @@ export default function QuotePreviewPage({
       <div className="max-w-4xl mx-auto bg-white text-slate-900 rounded-2xl shadow-2xl p-8 sm:p-12 print:shadow-none print:rounded-none print:p-8 print:max-w-none">
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start border-b border-slate-200 pb-8 gap-6">
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold">
-                AI
+          <div className="space-y-1.5 max-w-xl">
+            <div className="flex items-center gap-3">
+              {logoDocId ? (
+                <img
+                  src={`/api/documents/${logoDocId}/download`}
+                  alt={brandDisplayName}
+                  className="h-10 max-h-12 w-auto object-contain max-w-[180px]"
+                />
+              ) : (
+                <div
+                  className="h-9 w-9 rounded-lg flex items-center justify-center text-white font-bold text-sm shadow-sm"
+                  style={{ backgroundColor: sender?.primaryColor || '#2563eb' }}
+                >
+                  {brandDisplayName.slice(0, 2).toUpperCase()}
+                </div>
+              )}
+              <div>
+                <span className="text-xl font-bold tracking-tight text-slate-900 block leading-tight">
+                  {brandDisplayName}
+                </span>
+                {legalDisplayName && legalDisplayName !== brandDisplayName && (
+                  <span className="text-xs font-semibold text-slate-600 block">
+                    {legalDisplayName}
+                  </span>
+                )}
               </div>
-              <span className="text-xl font-bold tracking-tight text-slate-900">AI Agency Consulting S.r.l.</span>
             </div>
-            <p className="text-xs text-slate-500">
-              Soluzioni di Intelligenza Artificiale, Automazione & Sviluppo Software
-            </p>
-            <p className="text-xs text-slate-500">
-              Via Montenapoleone 14, 20121 Milano (MI) • P.IVA / C.F. 09876543210
-            </p>
-            <p className="text-xs text-slate-500">
-              Email: direzione@ai-agency.it • Tel: +39 02 87654321
-            </p>
+
+            {sender?.tagline && (
+              <p className="text-xs text-slate-600 font-medium italic pt-0.5">
+                {sender.tagline}
+              </p>
+            )}
+
+            {addressLine && (
+              <p className="text-xs text-slate-500">
+                {addressLine}
+              </p>
+            )}
+
+            {taxLine && (
+              <p className="text-xs text-slate-500 font-mono">
+                {taxLine}
+              </p>
+            )}
+
+            {contactLine && (
+              <p className="text-xs text-slate-500">
+                {contactLine}
+              </p>
+            )}
+
+            {sender?.quoteHeaderNotes && (
+              <p className="text-[11px] text-slate-600 pt-1 border-t border-slate-100 italic">
+                {sender.quoteHeaderNotes}
+              </p>
+            )}
           </div>
 
-          <div className="text-left sm:text-right space-y-1">
+          <div className="text-left sm:text-right space-y-1 shrink-0">
             <div className="text-2xl font-black font-mono text-blue-600">{quote.quoteNumber}</div>
             <div className="text-xs font-semibold text-slate-600">Versione {quote.currentVersionNumber}</div>
             <div className="text-xs text-slate-500">
@@ -195,15 +279,32 @@ export default function QuotePreviewPage({
         {/* Terms & Conditions */}
         <div className="border-t border-slate-200 pt-6 space-y-3 text-xs text-slate-600 mb-12">
           <h4 className="font-bold text-slate-900 uppercase tracking-wider text-[10px]">Condizioni e Termini di Fornitura</h4>
-          <p><strong>Modalità di Pagamento:</strong> {quote.paymentTerms || '30% all\'avvio, 40% al rilascio beta, 30% al collaudo finale'}</p>
-          <p><strong>Tempi di Rilascio:</strong> {quote.deliveryTerms || '30 giorni lavorativi dall\'accettazione formale'}</p>
+          <p>
+            <strong>Modalità di Pagamento:</strong>{' '}
+            {quote.paymentTerms || sender?.quoteDefaultTerms || '30% all\'avvio, 40% al rilascio beta, 30% al collaudo finale'}
+          </p>
+          {sender?.quotePaymentInstructions && (
+            <p>
+              <strong>Coordinate Bancarie / Istruzioni:</strong> {sender.quotePaymentInstructions}
+            </p>
+          )}
+          <p>
+            <strong>Tempi di Rilascio:</strong> {quote.deliveryTerms || '30 giorni lavorativi dall\'accettazione formale'}
+          </p>
           {quote.notes && <p><strong>Note Particolari:</strong> {quote.notes}</p>}
+          {sender?.quoteFooterText && (
+            <div className="pt-2 text-[11px] text-slate-500 border-t border-slate-100 whitespace-pre-line">
+              {sender.quoteFooterText}
+            </div>
+          )}
         </div>
 
         {/* Signatures Box */}
         <div className="grid grid-cols-2 gap-8 pt-8 border-t border-slate-200 text-xs text-slate-700">
           <div className="space-y-12">
-            <span className="font-semibold block">Per AI Agency Consulting S.r.l.</span>
+            <span className="font-semibold block">
+              Per {sender?.legalName || sender?.brandName || 'AI Agency'}
+            </span>
             <div className="border-b border-slate-400 w-48"></div>
             <span className="text-[10px] text-slate-400 block">Firma del Legale Rappresentante</span>
           </div>

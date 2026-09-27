@@ -366,6 +366,7 @@ export const quoteVersions = sqliteTable(
     deliveryTerms: text('delivery_terms'),
     notes: text('notes'),
     snapshotItemsJson: text('snapshot_items_json').notNull(), // Snapshot immutabile righe
+    senderSnapshotJson: text('sender_snapshot_json'), // Snapshot immutabile mittente (dati fiscali, brand, logo, footer)
     createdBy: text('created_by').notNull().references(() => users.id),
     createdAt: text('created_at').notNull(),
   },
@@ -887,11 +888,70 @@ export const userInvitations = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// Area Admin - Impostazioni Attività, Brand e Preventivi (Organization Settings)
+// ---------------------------------------------------------------------------
+
+export const organizationSettings = sqliteTable(
+  'organization_settings',
+  {
+    id: text('id').primaryKey(),
+    brandKey: text('brand_key').notNull().unique().default('default'),
+    isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(true),
+
+    // 1. Legal / Business Identity
+    legalName: text('legal_name'),
+    legalForm: text('legal_form'),
+    vatId: text('vat_id'),
+    fiscalCode: text('fiscal_code'),
+    legalAddress: text('legal_address'),
+    postalCode: text('postal_code'),
+    city: text('city'),
+    province: text('province'),
+    country: text('country').default('Italia'),
+    adminEmail: text('admin_email'),
+    phone: text('phone'),
+    pec: text('pec'),
+    sdiCode: text('sdi_code'),
+
+    // 2. Public Brand
+    brandName: text('brand_name'),
+    tagline: text('tagline'),
+    description: text('description'),
+    logoDocumentId: text('logo_document_id').references(() => documents.id),
+    logoDarkDocumentId: text('logo_dark_document_id').references(() => documents.id),
+    faviconDocumentId: text('favicon_document_id').references(() => documents.id),
+    primaryColor: text('primary_color'),
+    secondaryColor: text('secondary_color'),
+    accentColor: text('accent_color'),
+
+    // 3. Quote Settings
+    quoteHeaderNotes: text('quote_header_notes'),
+    quoteFooterText: text('quote_footer_text'),
+    quoteDefaultValidityDays: integer('quote_default_validity_days').default(30),
+    quoteDefaultTerms: text('quote_default_terms'),
+    quotePaymentInstructions: text('quote_payment_instructions'),
+    quoteContactBlockJson: text('quote_contact_block_json'),
+    quoteLogoChoice: text('quote_logo_choice', { enum: ['primary', 'dark', 'none'] }).default('primary'),
+
+    // Metadata & Audit
+    updatedBy: text('updated_by').references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    brandKeyIdx: index('org_settings_brand_key_idx').on(table.brandKey),
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Type Exports
 // ---------------------------------------------------------------------------
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+
+export type OrganizationSettings = typeof organizationSettings.$inferSelect;
+export type NewOrganizationSettings = typeof organizationSettings.$inferInsert;
 
 export type ProjectMember = typeof projectMembers.$inferSelect;
 export type NewProjectMember = typeof projectMembers.$inferInsert;

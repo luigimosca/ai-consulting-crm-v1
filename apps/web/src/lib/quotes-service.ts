@@ -14,6 +14,7 @@ import {
 import { eq, desc, and } from 'drizzle-orm';
 import { calcQuoteTotals, calcLineTotal } from './money';
 import { logActivity } from './activity-logger';
+import { getOrganizationSettings, buildQuoteSenderSnapshot } from './settings-service';
 
 // ---------------------------------------------------------------------------
 // Unique Code Generators
@@ -112,6 +113,12 @@ export async function createQuote(
   // Exact calculations
   const totals = calcQuoteTotals(input.items);
 
+  const orgSettings = getOrganizationSettings();
+  const defaultValidityDays = orgSettings.quoteDefaultValidityDays || 30;
+  const defaultValidUntil = new Date(Date.now() + defaultValidityDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const senderSnapshot = buildQuoteSenderSnapshot();
+  const senderSnapshotJson = JSON.stringify(senderSnapshot);
+
   // 1. Insert Quote
   const newQuote = {
     id: quoteId,
@@ -127,8 +134,8 @@ export async function createQuote(
     taxTotal: totals.taxTotal,
     totalAmount: totals.totalAmount,
     currency: 'EUR',
-    validUntil: input.validUntil || null,
-    paymentTerms: input.paymentTerms || '30% all\'avvio, 40% al rilascio beta, 30% al collaudo finale',
+    validUntil: input.validUntil || defaultValidUntil,
+    paymentTerms: input.paymentTerms || orgSettings.quoteDefaultTerms || '30% all\'avvio, 40% al rilascio beta, 30% al collaudo finale',
     deliveryTerms: input.deliveryTerms || '30 giorni lavorativi dall\'accettazione formale',
     notes: input.notes || null,
     createdBy: currentUser.userId,
@@ -177,11 +184,12 @@ export async function createQuote(
       taxRate: 22.0,
       taxTotal: totals.taxTotal,
       totalAmount: totals.totalAmount,
-      validUntil: input.validUntil || null,
+      validUntil: newQuote.validUntil,
       paymentTerms: newQuote.paymentTerms,
       deliveryTerms: newQuote.deliveryTerms,
       notes: input.notes || null,
       snapshotItemsJson: JSON.stringify(itemsToInsert),
+      senderSnapshotJson,
       createdBy: currentUser.userId,
       createdAt: now,
     })
@@ -213,6 +221,9 @@ export async function snapshotQuoteVersion(
     .orderBy(quoteItems.sortOrder)
     .all();
 
+  const senderSnapshot = buildQuoteSenderSnapshot();
+  const senderSnapshotJson = JSON.stringify(senderSnapshot);
+
   const now = new Date().toISOString();
   const versionId = `qv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
@@ -232,6 +243,7 @@ export async function snapshotQuoteVersion(
       deliveryTerms: quote.deliveryTerms,
       notes: quote.notes,
       snapshotItemsJson: JSON.stringify(items),
+      senderSnapshotJson,
       createdBy: currentUser.userId,
       createdAt: now,
     })

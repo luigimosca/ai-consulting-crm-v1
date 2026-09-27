@@ -731,10 +731,51 @@ export function initDatabase() {
     );
     CREATE INDEX IF NOT EXISTS user_invitations_token_idx ON user_invitations(token);
     CREATE INDEX IF NOT EXISTS user_invitations_email_idx ON user_invitations(email);
+
+    -- Area Admin: Impostazioni Attività, Brand e Preventivi (Organization Settings)
+    CREATE TABLE IF NOT EXISTS organization_settings (
+      id TEXT PRIMARY KEY,
+      brand_key TEXT NOT NULL UNIQUE DEFAULT 'default',
+      is_default INTEGER NOT NULL DEFAULT 1,
+      legal_name TEXT,
+      legal_form TEXT,
+      vat_id TEXT,
+      fiscal_code TEXT,
+      legal_address TEXT,
+      postal_code TEXT,
+      city TEXT,
+      province TEXT,
+      country TEXT DEFAULT 'Italia',
+      admin_email TEXT,
+      phone TEXT,
+      pec TEXT,
+      sdi_code TEXT,
+      brand_name TEXT,
+      tagline TEXT,
+      description TEXT,
+      logo_document_id TEXT REFERENCES documents(id),
+      logo_dark_document_id TEXT REFERENCES documents(id),
+      favicon_document_id TEXT REFERENCES documents(id),
+      primary_color TEXT,
+      secondary_color TEXT,
+      accent_color TEXT,
+      quote_header_notes TEXT,
+      quote_footer_text TEXT,
+      quote_default_validity_days INTEGER DEFAULT 30,
+      quote_default_terms TEXT,
+      quote_payment_instructions TEXT,
+      quote_contact_block_json TEXT,
+      quote_logo_choice TEXT DEFAULT 'primary',
+      updated_by TEXT REFERENCES users(id),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS org_settings_brand_key_idx ON organization_settings(brand_key);
   `);
 
   // Migrazione retrocompatibile per colonne aggiuntive se le tabelle esistevano già
   const migrations = [
+    'ALTER TABLE quote_versions ADD COLUMN sender_snapshot_json TEXT',
     'ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT "active"',
     'ALTER TABLE users ADD COLUMN invited_by TEXT',
     'ALTER TABLE users ADD COLUMN activated_at TEXT',
@@ -874,6 +915,31 @@ export function initDatabase() {
     }
   } catch (err) {
     console.error('Migration error making order_id nullable:', err);
+  }
+
+  // Seeding record di default per organization_settings se non esiste
+  try {
+    const existingSettings = sqlite.prepare(`SELECT id FROM organization_settings WHERE id = 'default'`).get();
+    if (!existingSettings) {
+      const now = new Date().toISOString();
+      sqlite.prepare(`
+        INSERT INTO organization_settings (
+          id, brand_key, is_default,
+          legal_name, legal_form, vat_id, fiscal_code, legal_address, postal_code, city, province, country, admin_email, phone, pec, sdi_code,
+          brand_name, tagline, description,
+          quote_header_notes, quote_footer_text, quote_default_validity_days, quote_default_terms, quote_logo_choice,
+          created_at, updated_at
+        ) VALUES (
+          'default', 'default', 1,
+          'AI Consulting & Solutions', 'Ditta / Società', NULL, NULL, NULL, NULL, NULL, NULL, 'Italia', NULL, NULL, NULL, NULL,
+          'AI Consulting', 'Soluzioni di Intelligenza Artificiale e Automazione per Imprese', NULL,
+          NULL, 'Grazie per la fiducia accordataci.', 30, '30% all''avvio, 40% al rilascio beta, 30% al collaudo finale', 'primary',
+          ?, ?
+        )
+      `).run(now, now);
+    }
+  } catch (err) {
+    console.error('Error seeding default organization_settings:', err);
   }
 }
 

@@ -22,6 +22,7 @@ import {
   snapshotQuoteVersion,
 } from '@/lib/quotes-service';
 import { logActivity } from '@/lib/activity-logger';
+import { getOrganizationSettings, buildQuoteSenderSnapshot } from '@/lib/settings-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -90,11 +91,35 @@ export async function GET(
       company = db.select().from(companies).where(eq(companies.id, quote.companyId)).get();
     }
 
+    // Determine Sender Settings / Snapshot
+    // If quote is non-draft (inviato, accettato, etc.), find matching frozen version snapshot
+    let senderSettings = null;
+    if (quote.status !== 'bozza') {
+      const activeVersion = versions.find((v) => v.versionNumber === quote.currentVersionNumber && v.senderSnapshotJson);
+      if (activeVersion && activeVersion.senderSnapshotJson) {
+        try {
+          senderSettings = JSON.parse(activeVersion.senderSnapshotJson);
+        } catch {}
+      }
+    }
+
+    // If not found in snapshot or if draft, fallback to current live settings
+    if (!senderSettings) {
+      senderSettings = buildQuoteSenderSnapshot();
+    }
+
+    // Enrich versions with parsed snapshots
+    const enrichedVersions = versions.map((v) => ({
+      ...v,
+      senderSnapshot: v.senderSnapshotJson ? (() => { try { return JSON.parse(v.senderSnapshotJson); } catch { return null; } })() : null,
+    }));
+
     return NextResponse.json({
       success: true,
       quote,
       items,
-      versions,
+      versions: enrichedVersions,
+      senderSettings,
       approvals: quoteApprovals,
       order,
       lead,
