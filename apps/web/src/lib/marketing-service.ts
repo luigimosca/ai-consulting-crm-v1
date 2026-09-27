@@ -847,6 +847,19 @@ export async function populateCampaignRecipients(
     .where(eq(campaignRecipients.campaignId, campaignId))
     .all();
 
+  const recipientIds = existingRecipients.map((r) => r.id);
+  const loggedEntityIds = new Set<string>();
+  if (recipientIds.length > 0) {
+    const logs = db
+      .select({ entityId: activityLog.entityId })
+      .from(activityLog)
+      .where(inArray(activityLog.entityId, recipientIds))
+      .all();
+    for (const l of logs) {
+      if (l.entityId) loggedEntityIds.add(l.entityId);
+    }
+  }
+
   const candidateKeyMap = new Map(
     evaluation.candidates.map((c) => [c.targetType === 'leads' ? `lead_${c.id}` : `comp_${c.id}`, c])
   );
@@ -859,10 +872,12 @@ export async function populateCampaignRecipients(
     const key = existing.leadId ? `lead_${existing.leadId}` : `comp_${existing.companyId}`;
     const matchingCandidate = candidateKeyMap.get(key);
 
+    const hasActivity = loggedEntityIds.has(existing.id);
     const hasHistory =
       existing.status !== 'pending' ||
-      (existing.outcomeNotes && existing.outcomeNotes.trim().length > 0) ||
-      existing.lastContactedAt !== null;
+      Boolean(existing.outcomeNotes && existing.outcomeNotes.trim().length > 0) ||
+      existing.lastContactedAt !== null ||
+      hasActivity;
 
     if (matchingCandidate) {
       // In-place update: candidate is still in segment.
@@ -904,10 +919,37 @@ export async function populateCampaignRecipients(
       candidateKeyMap.delete(key);
     } else {
       // Candidate is no longer in segment.
-      // If it has NO history and NO notes, safe to prune to keep audience accurate.
-      // If it HAS history or notes, 100% PRESERVE IT!
+      // If it has NO history, NO notes, and NO audit logs, safe to prune to keep audience accurate.
+      // If it HAS history, notes, timestamp, or activity logs, 100% PRESERVE IT!
       if (!hasHistory && existing.status === 'pending') {
-        db.delete(campaignRecipients).where(eq(campaignRecipients.id, existing.id)).run();
+        // Audit log the pruning for traceability & reversibility
+        try {
+          db.insert(activityLog)
+            .values({
+              id: `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+              entityType: 'campaign_recipient',
+              entityId: existing.id,
+              action: 'recipient_pruned_out_of_segment',
+              performedBy: user.userId,
+              detailsJson: JSON.stringify({
+                campaignId,
+                leadId: existing.leadId,
+                companyId: existing.companyId,
+                recipientEmail: existing.recipientEmail,
+                contactPersonName: existing.contactPersonName,
+                reason: 'Candidato non più corrispondente ai criteri del segmento (riga pending mai lavorata)',
+              }),
+              beforeJson: JSON.stringify(existing),
+              afterJson: null,
+              ipAddress: null,
+              createdAt: now,
+            })
+            .run();
+        } catch {}
+
+        db.delete(campaignRecipients)
+          .where(and(eq(campaignRecipients.id, existing.id), eq(campaignRecipients.campaignId, campaignId)))
+          .run();
       }
     }
   }

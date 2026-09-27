@@ -22,14 +22,15 @@ if (
 
 async function runFinalVerifications() {
   console.log('========================================================================');
-  console.log('=== TEST SUITE: 3 VERIFICHE FINALI MARKETING HUB (FASE 1) ===');
+  console.log('=== TEST SUITE: 4 VERIFICHE FINALI MARKETING HUB (FASE 1) ===');
   console.log(`=== DB Isolato: ${tempDbFile} ===`);
   console.log('========================================================================\n');
 
   // Dynamic imports AFTER setting DATABASE_PATH
-  const { initDatabase, db, users, leads, companies, campaignRecipients, marketingCampaigns, marketingSegments } = await import('../packages/db/src');
+  const { initDatabase, db, users, leads, companies, campaignRecipients, marketingCampaigns, marketingSegments, activityLog } = await import('../packages/db/src');
   const {
     createSegment,
+    updateSegment,
     createCampaign,
     populateCampaignRecipients,
     updateRecipientStatus,
@@ -405,8 +406,161 @@ async function runFinalVerifications() {
       } catch {}
     }
 
+    // -------------------------------------------------------------------------
+    // TEST 4: Sincronizzazione Avanzata Pending: Preservazione Storico/Note/Audit vs Pruning Auditabile & Isolamento Cross-Campagna
+    // -------------------------------------------------------------------------
+    console.log('[TEST 4/4] Sincronizzazione Avanzata Destinatari Pending (Preservazione vs Pruning Auditabile & Isolamento Campagne)...');
+
+    const leadWithNotesId = `lead_notes_${Date.now()}`;
+    const leadWithAuditId = `lead_audit_${Date.now()}`;
+    const leadWithTimestampId = `lead_ts_${Date.now()}`;
+    const leadUnworkedId = `lead_unworked_${Date.now()}`;
+    const leadCampaignBId = `lead_camp_b_${Date.now()}`;
+
+    db.insert(leads).values([
+      { id: leadWithNotesId, companyName: 'Azienda Con Note', sector: 'target_sync_sector', score: 85, status: 'nuovo', city: 'Napoli', email: 'notes@azienda.it', marketingConsentStatus: 'granted', createdAt: now, updatedAt: now },
+      { id: leadWithAuditId, companyName: 'Azienda Con Audit Log', sector: 'target_sync_sector', score: 85, status: 'nuovo', city: 'Napoli', email: 'audit@azienda.it', marketingConsentStatus: 'granted', createdAt: now, updatedAt: now },
+      { id: leadWithTimestampId, companyName: 'Azienda Con Timestamp', sector: 'target_sync_sector', score: 85, status: 'nuovo', city: 'Napoli', email: 'ts@azienda.it', marketingConsentStatus: 'granted', createdAt: now, updatedAt: now },
+      { id: leadUnworkedId, companyName: 'Azienda Mai Lavorata', sector: 'target_sync_sector', score: 85, status: 'nuovo', city: 'Napoli', email: 'unworked@azienda.it', marketingConsentStatus: 'granted', createdAt: now, updatedAt: now },
+      { id: leadCampaignBId, companyName: 'Azienda Altra Campagna B', sector: 'other_sector_b', score: 90, status: 'nuovo', city: 'Milano', email: 'campb@azienda.it', marketingConsentStatus: 'granted', createdAt: now, updatedAt: now },
+    ]).run();
+
+    // Segment & Campaign A
+    const segmentSyncA = await createSegment({
+      name: 'Segmento Sync A',
+      targetType: 'leads',
+      rules: { sectors: ['target_sync_sector'] },
+    }, operatorA);
+
+    const campaignSyncA = await createCampaign({
+      name: 'Campagna Sync A',
+      objective: 'lead_generation',
+      channel: 'email',
+      segmentId: segmentSyncA.id,
+    }, operatorA);
+
+    // Segment & Campaign B (Separate Campaign)
+    const segmentSyncB = await createSegment({
+      name: 'Segmento Sync B',
+      targetType: 'leads',
+      rules: { sectors: ['other_sector_b'] },
+    }, operatorA);
+
+    const campaignSyncB = await createCampaign({
+      name: 'Campagna Sync B',
+      objective: 'lead_generation',
+      channel: 'email',
+      segmentId: segmentSyncB.id,
+    }, operatorA);
+
+    // Initial enrollment
+    await populateCampaignRecipients(campaignSyncA.id, operatorA);
+    await populateCampaignRecipients(campaignSyncB.id, operatorA);
+
+    const initialDetailsA = await getCampaignDetails(campaignSyncA.id);
+    const initialDetailsB = await getCampaignDetails(campaignSyncB.id);
+
+    console.log('  Arruolamento Iniziale Campagna A Destinatari:', initialDetailsA.totalRecipients);
+    console.log('  Arruolamento Iniziale Campagna B Destinatari:', initialDetailsB.totalRecipients);
+    if (initialDetailsA.totalRecipients !== 4 || initialDetailsB.totalRecipients !== 1) {
+      throw new Error('Arruolamento iniziale non corretto');
+    }
+
+    const recipWithNotes = initialDetailsA.recipients.find((r: any) => r.leadId === leadWithNotesId)!;
+    const recipWithAudit = initialDetailsA.recipients.find((r: any) => r.leadId === leadWithAuditId)!;
+    const recipWithTimestamp = initialDetailsA.recipients.find((r: any) => r.leadId === leadWithTimestampId)!;
+    const recipUnworked = initialDetailsA.recipients.find((r: any) => r.leadId === leadUnworkedId)!;
+    const recipCampB = initialDetailsB.recipients[0];
+
+    // 1. Add operator note to recipWithNotes (keeping status 'pending')
+    db.update(campaignRecipients)
+      .set({ outcomeNotes: 'Nota salvata: cliente richiede contatto via email', updatedAt: new Date().toISOString() })
+      .where(eq(campaignRecipients.id, recipWithNotes.id))
+      .run();
+
+    // 2. Add activity_log entry for recipWithAudit (keeping status 'pending' and no notes in recipient table)
+    db.insert(activityLog).values({
+      id: `act_test_sync_${Date.now()}`,
+      entityType: 'campaign_recipient',
+      entityId: recipWithAudit.id,
+      action: 'recipient_inspected_by_operator',
+      performedBy: operatorA.userId,
+      detailsJson: JSON.stringify({ note: 'Operatore ha verificato la partita IVA' }),
+      beforeJson: null,
+      afterJson: null,
+      ipAddress: null,
+      createdAt: new Date().toISOString(),
+    }).run();
+
+    // 3. Set lastContactedAt timestamp on recipWithTimestamp (keeping status 'pending')
+    db.update(campaignRecipients)
+      .set({ lastContactedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+      .where(eq(campaignRecipients.id, recipWithTimestamp.id))
+      .run();
+
+    // 4. recipUnworked remains 100% untouched (pending, no notes, no audit, no timestamp)
+
+    // Now, change the rules of Segment A so that NONE of the 4 leads match Segment A anymore
+    console.log('  -> Modifica filtri Segmento A: i 4 lead escono dai criteri del segmento...');
+    await updateSegment(segmentSyncA.id, {
+      rules: { sectors: ['settore_completamente_differente_nessun_match'] },
+    }, operatorA);
+
+    // Execute populateCampaignRecipients for Campaign A
+    console.log('  -> Esecuzione risincronizzazione: populateCampaignRecipients(Campagna A)...');
+    await populateCampaignRecipients(campaignSyncA.id, operatorA);
+
+    const afterSyncDetailsA = await getCampaignDetails(campaignSyncA.id);
+    const afterSyncDetailsB = await getCampaignDetails(campaignSyncB.id);
+
+    console.log('  Destinatari Campagna A dopo sync (usciti dal segmento):', afterSyncDetailsA.totalRecipients);
+    console.log('  Destinatari Campagna B dopo sync di Campagna A:', afterSyncDetailsB.totalRecipients);
+
+    // VERIFICATION 1: Pending with Notes is PRESERVED
+    const preservedNotes = afterSyncDetailsA.recipients.find((r: any) => r.id === recipWithNotes.id);
+    if (!preservedNotes || !preservedNotes.outcomeNotes?.includes('cliente richiede contatto')) {
+      throw new Error('ERRORE CRITICO: Destinatario pending con outcomeNotes è stato cancellato!');
+    }
+    console.log('  ✓ Preservazione Note: Destinatario pending con outcomeNotes conservato al 100%.');
+
+    // VERIFICATION 2: Pending with Activity Log is PRESERVED
+    const preservedAudit = afterSyncDetailsA.recipients.find((r: any) => r.id === recipWithAudit.id);
+    if (!preservedAudit) {
+      throw new Error('ERRORE CRITICO: Destinatario pending con riferimento in activity_log è stato cancellato!');
+    }
+    console.log('  ✓ Preservazione Audit: Destinatario pending con riferimento storico in activity_log conservato al 100%.');
+
+    // VERIFICATION 3: Pending with Timestamp is PRESERVED
+    const preservedTs = afterSyncDetailsA.recipients.find((r: any) => r.id === recipWithTimestamp.id);
+    if (!preservedTs || !preservedTs.lastContactedAt) {
+      throw new Error('ERRORE CRITICO: Destinatario pending con lastContactedAt è stato cancellato!');
+    }
+    console.log('  ✓ Preservazione Timestamp: Destinatario pending con lastContactedAt conservato al 100%.');
+
+    // VERIFICATION 4: Pending unworked is PRUNED and AUDITED in activity_log
+    const prunedUnworked = afterSyncDetailsA.recipients.find((r: any) => r.id === recipUnworked.id);
+    if (prunedUnworked) {
+      throw new Error('ERRORE: Destinatario pending mai lavorato non è stato rimosso dopo l\'uscita dal segmento!');
+    }
+    const pruneAuditLog = db
+      .select()
+      .from(activityLog)
+      .where(eq(activityLog.entityId, recipUnworked.id))
+      .get();
+    if (!pruneAuditLog || pruneAuditLog.action !== 'recipient_pruned_out_of_segment' || !pruneAuditLog.beforeJson) {
+      throw new Error('ERRORE AUDIT: Rimozione del destinatario mai lavorato non tracciata in activity_log con beforeJson!');
+    }
+    console.log('  ✓ Pruning Auditabile: Destinatario pending mai lavorato rimosso con traccia audit completa e snapshot reversibile in beforeJson.');
+
+    // VERIFICATION 5: Cross-Campaign Isolation
+    if (afterSyncDetailsB.totalRecipients !== 1 || afterSyncDetailsB.recipients[0].id !== recipCampB.id) {
+      throw new Error('ERRORE ISOLAMENTO: La sincronizzazione di Campagna A ha alterato o rimosso destinatari di Campagna B!');
+    }
+    console.log('  ✓ Isolamento Cross-Campagna: Nessun record o destinatario di Campagna B è stato toccato o alterato.');
+    console.log('  ✓ TEST 4 SUPERATO CON SUCCESSO.\n');
+
     console.log('========================================================================');
-    console.log('=== TUTTI I 3 TEST FINALI SONO STATI SUPERATI CON SUCCESSO AL 100%! ===');
+    console.log('=== TUTTI I 4 TEST FINALI SONO STATI SUPERATI CON SUCCESSO AL 100%! ===');
     console.log('========================================================================\n');
   } finally {
     try {
