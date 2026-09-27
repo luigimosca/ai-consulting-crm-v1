@@ -943,6 +943,130 @@ export const organizationSettings = sqliteTable(
   })
 );
 
+// ===========================================================================
+// Registro Account e Deleghe Digitali (Client Digital Assets & Access Vault)
+// ===========================================================================
+
+export const clientPlatformAccounts = sqliteTable(
+  'client_platform_accounts',
+  {
+    id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .notNull()
+      .references(() => companies.id),
+
+    platformType: text('platform_type', {
+      enum: [
+        'dns_registrar',
+        'hosting_server',
+        'cms_wordpress',
+        'google_analytics_4',
+        'google_search_console',
+        'google_tag_manager',
+        'google_ads_account',
+        'google_business_profile',
+        'meta_business_manager',
+        'meta_pixel_dataset',
+        'meta_facebook_page',
+        'meta_instagram_business',
+        'booking_engine_tour',
+        'other_custom',
+      ],
+    }).notNull(),
+
+    accountName: text('account_name').notNull(),
+    externalId: text('external_id'), // Non-secret public identifier (e.g. CID, Measurement ID, Property URL)
+    externalUrl: text('external_url'),
+
+    accessMethod: text('access_method', {
+      enum: [
+        'agency_mcc_partner',
+        'delegated_agency_email',
+        'service_account_readonly',
+        'partner_business_manager',
+        'manual_shared_access',
+        'other',
+      ],
+    })
+      .notNull()
+      .default('agency_mcc_partner'),
+
+    accessLevel: text('access_level', {
+      enum: ['admin', 'standard_edit', 'read_only_analytics', 'finance_only'],
+    })
+      .notNull()
+      .default('standard_edit'),
+
+    delegatedToIdentifier: text('delegated_to_identifier'), // e.g. "mcc@ai-agency.it"
+
+    status: text('status', {
+      enum: [
+        'not_requested',
+        'requested',
+        'declared_by_client',
+        'verified_active',
+        'revoked',
+        'expired',
+      ],
+    })
+      .notNull()
+      .default('not_requested'),
+
+    originClientRequestId: text('origin_client_request_id').references(() => clientRequests.id),
+    originClientRequestItemId: text('origin_client_request_item_id').references(
+      () => clientRequestItems.id
+    ),
+
+    evidenceDocumentId: text('evidence_document_id').references(() => documents.id),
+
+    verificationType: text('verification_type', {
+      enum: ['manual_operator', 'api_integration'],
+    })
+      .notNull()
+      .default('manual_operator'),
+    verificationMethod: text('verification_method'),
+    verificationNotes: text('verification_notes'),
+    verifiedByUserId: text('verified_by_user_id').references(() => users.id),
+    verifiedAt: text('verified_at'),
+
+    revokedAt: text('revoked_at'),
+    revokedByUserId: text('revoked_by_user_id').references(() => users.id),
+    revocationReason: text('revocation_reason'),
+
+    notes: text('notes'),
+
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    companyIdx: index('client_plat_acc_company_idx').on(table.companyId),
+    platformTypeIdx: index('client_plat_acc_type_idx').on(table.platformType),
+    statusIdx: index('client_plat_acc_status_idx').on(table.status),
+  })
+);
+
+export const projectPlatformAccountLinks = sqliteTable(
+  'project_platform_account_links',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => clientPlatformAccounts.id),
+    linkedByUserId: text('linked_by_user_id')
+      .notNull()
+      .references(() => users.id),
+    linkedAt: text('linked_at').notNull(),
+    notes: text('notes'),
+  },
+  (table) => ({
+    projectIdx: index('proj_plat_link_project_idx').on(table.projectId),
+    accountIdx: index('proj_plat_link_account_idx').on(table.accountId),
+  })
+);
+
 // ---------------------------------------------------------------------------
 // Type Exports
 // ---------------------------------------------------------------------------
@@ -1054,5 +1178,11 @@ export type NewClientRequestTaskLink = typeof clientRequestTaskLinks.$inferInser
 
 export type RequestComment = typeof requestComments.$inferSelect;
 export type NewRequestComment = typeof requestComments.$inferInsert;
+
+export type ClientPlatformAccount = typeof clientPlatformAccounts.$inferSelect;
+export type NewClientPlatformAccount = typeof clientPlatformAccounts.$inferInsert;
+
+export type ProjectPlatformAccountLink = typeof projectPlatformAccountLinks.$inferSelect;
+export type NewProjectPlatformAccountLink = typeof projectPlatformAccountLinks.$inferInsert;
 
 

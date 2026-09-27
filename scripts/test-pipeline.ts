@@ -139,9 +139,10 @@ async function testPipeline() {
 
   // Test 6: Auth JWT Token flow
   console.log('--- TEST 6: Auth JWT Token Flow ---');
-  const token = await createSessionToken({ id: 'user_admin', email: 'admin@ai-agency.it', name: 'Admin', role: 'admin' });
+  const adminUser = userList.find((u) => u.role === 'admin') || userList[0];
+  const token = await createSessionToken({ userId: adminUser.id, email: adminUser.email, name: adminUser.name, role: adminUser.role as any });
   const payload = await verifySessionToken(token);
-  if (!payload || payload.email !== 'admin@ai-agency.it') {
+  if (!payload || payload.email !== adminUser.email) {
     throw new Error('❌ Test 6 fallito: Verifica sessione JWT errata');
   }
   console.log('- Token JWT generato e verificato con successo');

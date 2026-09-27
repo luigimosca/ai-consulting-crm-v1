@@ -1,10 +1,12 @@
 # AI Consulting CRM & Marketing Platform (v1)
 
-Piattaforma web completa costruita in **Next.js 15 (App Router, TypeScript)** per un'agenzia di consulenza AI specializzata in soluzioni per:
+Piattaforma web completa costruita in **Next.js 15.1.7 (App Router, TypeScript, React 19)** per un'agenzia di consulenza AI specializzata in soluzioni per:
 - **Studi Professionali** (Avvocati, Commercialisti, Notai, Consulenti)
 - **HORECA** (Ristoranti, Pizzerie, Bar, Pasticcerie, Hotel, B&B)
 - **E-commerce & Retail Digitale**
 - **Strutture Turistiche & Servizi Locali**
+
+> **Nota di Compatibilità Stack:** Il repository è validato e vincolato a **Next.js 15.1.7** e **React 19**. L'upgrade a Next.js 16 è deliberatamente posticipato per garantire la stabilità di produzione e la compatibilità delle dipendenze ORM/SQLite.
 
 ---
 
@@ -64,7 +66,14 @@ Pipeline modulare a **6 Adapter operativi** per l'audit approfondito dei prospec
   - **INI-PEC**: Link diretto di consultazione per l'Indice Nazionale Indirizzi PEC senza scraping aggressivo.
   - **Registro Imprese**: Collegamento per visure e bilanci camerali con trasparenza sui limiti dei dati aperti.
 
-### 5. CRM & Outreach AI (`/crm/leads`)
+### 5. Registro Account & Deleghe Digitali (`/crm/projects/[id]` & `/crm/companies/[id]`)
+- **Policy Zero Secrets**: Nessuna password, API key o token cliente viene mai salvato nel DB o esposto nella UI/log. Si gestiscono solo identificatori di delega (CID Google Ads, Business Manager ID Meta, etc.).
+- **Modello N:M Azienda-Progetti**: Gli account appartengono all'azienda (`companies`) e sono collegabili a molteplici progetti (`projects`) senza duplicazione dati.
+- **Verifica Manuale vs Integrazione API (v1)**: Distinzione netta dello stato `verified_active` che certifica la verifica manuale documentata dall'operatore.
+- **Audit Storico Immutabile su Revoca**: La revoca di un accesso preserva intatto l'audit storico di chi ha eseguito la verifica e registra un evento separato di revoca (`revokedAt`, `revokedByUserId`, `revocationReason`).
+- **Isolamento RBAC Progetto**: Gli operatori accedono esclusivamente agli account dei progetti a cui sono formalmente assegnati, con blocco 403 Forbidden a livello API.
+
+### 6. CRM & Outreach AI (`/crm/leads`)
 - **Autenticazione con Ruoli**: Sessioni JWT sicure in cookie `httpOnly` con ruoli `admin` e `operator`.
 - **Generatore Outreach AI**: Crea copy personalizzati per Email, WhatsApp e Script telefonico in 1 click.
 - **Deduplicazione Automatica**: Prevenzione automatica di lead duplicati per nome azienda e città.

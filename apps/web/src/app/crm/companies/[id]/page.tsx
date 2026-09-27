@@ -33,6 +33,8 @@ import {
   FileCheck,
 } from 'lucide-react';
 
+import { ProjectAccessesTab } from '@/components/crm/ProjectAccessesTab';
+
 const SECTOR_OPTIONS = [
   { value: 'horeca_ristoranti', label: 'Ristoranti & Horeca' },
   { value: 'horeca_hotel', label: 'Hotel & Strutture Ricettive' },
@@ -52,7 +54,7 @@ export default function CompanyDetailPage({
 
   const [companyData, setCompanyData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'commesse' | 'projects' | 'quotes'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'commesse' | 'projects' | 'quotes' | 'accounts'>('overview');
 
   // Edit Modal State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -288,6 +290,18 @@ export default function CompanyDetailPage({
         >
           <FileText className="h-3.5 w-3.5 text-purple-400" />
           <span>Preventivi ({quotes.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('accounts')}
+          className={`px-3.5 py-1.5 rounded-lg font-medium transition-colors flex items-center gap-1.5 shrink-0 ${
+            activeTab === 'accounts'
+              ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-500/40'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+          }`}
+        >
+          <ShieldCheck className="h-3.5 w-3.5 text-cyan-400" />
+          <span>Account & Deleghe</span>
         </button>
       </div>
 
@@ -540,6 +554,17 @@ export default function CompanyDetailPage({
             </div>
           )}
         </Card>
+      )}
+
+      {/* TAB CONTENT: ACCOUNTS & DELEGHE */}
+      {activeTab === 'accounts' && (
+        <div className="space-y-4">
+          <ProjectAccessesTab
+            companyId={id}
+            isManagerOrEditor={true}
+            currentUserRole={companyData?.currentUser?.role}
+          />
+        </div>
       )}
 
       {/* EDIT MODAL */}

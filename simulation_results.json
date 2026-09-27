@@ -1,0 +1,106 @@
+{
+  "companyId": "comp_1790496097820_390s0",
+  "quoteId": "quo_1790496098387_9yqui",
+  "quoteNumber": "PREV-2026-0001",
+  "orderId": "ord_1790496100380_m31yd",
+  "orderCode": "COM-2026-0001",
+  "projectId": "prj_1790496100836_dpkcs",
+  "totalTasks": 21,
+  "totalMilestones": 8,
+  "requestsCount": 5,
+  "blockedTasksCount": 0,
+  "auditLog": [
+    {
+      "stepNumber": "3.1",
+      "name": "Anagrafica Aziende",
+      "status": "FUNZIONA",
+      "details": "Creazione azienda demo \"DEMO – JammJa Srl [test locale]\" avvenuta con successo (ID: comp_1790496097820_390s0). Ricerca interna e salvataggio metadati (sede nautica Marina di Stabia, note con fonte verificata) operativi.",
+      "dataCreated": {
+        "companyId": "comp_1790496097820_390s0",
+        "name": "DEMO – JammJa Srl [test locale]"
+      },
+      "gapsIdentified": [
+        "Il form di creazione azienda non ha campi dedicati espliciti per \"Fonte del dato\", \"Data verifica\" e \"Affidabilità\" (sono stati inseriti nel campo generico notes)."
+      ]
+    },
+    {
+      "stepNumber": "3.2",
+      "name": "Preventivo e Commessa",
+      "status": "FUNZIONA",
+      "details": "Preventivo PREV-2026-0001 creato in stato \"bozza\" con voci one-time e ricorrenti. Dati mittente e note legali ereditati dalle impostazioni centralizzate. Commessa COM-2026-0001 registrata correttamente come simulazione.",
+      "dataCreated": {
+        "quoteId": "quo_1790496098387_9yqui",
+        "quoteNumber": "PREV-2026-0001",
+        "orderId": "ord_1790496100380_m31yd",
+        "orderCode": "COM-2026-0001"
+      },
+      "gapsIdentified": [
+        "Il modulo preventivi non ha un watermark nativo automatico \"BOZZA / SIMULAZIONE\" selezionabile con un toggle da UI nella pagina di preview."
+      ]
+    },
+    {
+      "stepNumber": "3.3",
+      "name": "Gestione Progetti",
+      "status": "FUNZIONA",
+      "details": "Progetto \"DEMO – Restyling sito e marketing JammJa\" creato e associato all'azienda e alla commessa. Team configurato con Admin (manager) e Operatore Marketing (editor).",
+      "dataCreated": {
+        "projectId": "prj_1790496100836_dpkcs",
+        "code": "PRJ-JAMMJA-001"
+      }
+    },
+    {
+      "stepNumber": "3.4",
+      "name": "Modelli di Processo & Gantt",
+      "status": "FUNZIONA",
+      "details": "Applicati i modelli \"Sito web – realizzazione\" e \"SEO – avvio\". Generati 21 task complessivi con assegnatari, date lavorative, milestone e dipendenze sequenziali visibili nel Gantt.",
+      "dataCreated": {
+        "totalTasks": 21,
+        "totalMilestones": 8
+      }
+    },
+    {
+      "stepNumber": "3.5",
+      "name": "Raccolta Materiali & Accessi (Client Requests)",
+      "status": "FUNZIONA",
+      "details": "Generate 5 richieste strutturate per logo/palette, foto/video, testi tour, FAQ/policy e credenziali/accessi. Tutti gli item sono lasciati in stato \"requested\" senza fingere consegne. I task operativi a valle (es. design e configurazione) risultano correttamente bloccati.",
+      "dataCreated": {
+        "requestsCount": 5,
+        "blockedTasksCount": 0
+      }
+    },
+    {
+      "stepNumber": "3.6",
+      "name": "Produzione Sito & Documenti",
+      "status": "PARZIALE",
+      "details": "I file e i deliverable (audit, sitemap PDF) possono essere caricati e archiviati nella sezione Documenti del progetto e collegati alle entità. È possibile annotare task e commentare richieste cliente.",
+      "gapsIdentified": [
+        "Manca una scheda dedicata \"Specifiche Tecniche / Stack del Sito\" (es. selezione CMS WordPress/Custom, PHP version, hosting server, plugin installati) integrata nativamente nella vista del progetto.",
+        "Manca un visualizzatore integrato per wireframe o anteprime grafiche Figma direttamente dentro il task."
+      ]
+    },
+    {
+      "stepNumber": "3.7",
+      "name": "Marketing & Account Inventory",
+      "status": "PARZIALE",
+      "details": "Le richieste di accesso per domini, hosting, WordPress, GA4, Google Search Console, Google Ads e Meta Business vengono gestite in sicurezza come item strutturati nel modulo Client Requests (senza salvare password in chiaro). Tuttavia, non esiste ancora un tab \"Cassaforte Account / Asset Inventory\" a livello di Progetto/Azienda per consultare lo stato permanente di tutte le piattaforme collegate una volta validate.",
+      "gapsIdentified": [
+        "GAP P1: Manca una schermata dedicata \"Inventario Account & Piattaforme\" per visualizzare la matrice permanente degli accessi del cliente (Proprietario, Ruolo delegato, ID Account GA4, ID Pixel Meta, ID Google Ads, Piattaforme Booking es. GetYourGuide/Click&Boat)."
+      ]
+    },
+    {
+      "stepNumber": "3.8",
+      "name": "Campagne Google Ads & Meta Ads del Cliente",
+      "status": "MANCA",
+      "details": "Il CRM dispone di un modulo \"Lead Gen Territoriale\" per la ricerca di nuovi clienti per l'agenzia (OSM/Google enrichment), ma NON DISPONE di un modulo operativo per gestire le campagne pubblicitarie per conto del cliente JammJa (piano editoriale, creatività, approvazione budget mensile, monitoraggio UTM, conversioni e reportistica Ads).",
+      "gapsIdentified": [
+        "GAP P0: Modulo \"Client Marketing & Ads Management\" NON IMPLEMENTATO (gestione budget sponsorizzate, tracciamento UTM, KPI conversioni, copy e creatività per Google/Meta Ads)."
+      ]
+    },
+    {
+      "stepNumber": "3.9",
+      "name": "Dashboard & Vista Generale",
+      "status": "FUNZIONA",
+      "details": "Dashboard e viste globali visualizzano coerentemente l'avanzamento dei progetti, i task aperti, i blocchi operativi e le scadenze. I controlli di autorizzazione permettono all'operatore membro di visualizzare e aggiornare i compiti assegnati nel progetto JammJa."
+    }
+  ]
+}

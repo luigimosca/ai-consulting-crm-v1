@@ -33,3 +33,4 @@ yarn-error.log*
 sqlite.db
 *.backup
 storage_vault/
+*.tsbuildinfo
