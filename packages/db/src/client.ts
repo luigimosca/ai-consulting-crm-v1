@@ -876,6 +876,38 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS mktg_recipients_lead_idx ON campaign_recipients(lead_id);
     CREATE INDEX IF NOT EXISTS mktg_recipients_company_idx ON campaign_recipients(company_id);
     CREATE INDEX IF NOT EXISTS mktg_recipients_status_idx ON campaign_recipients(status);
+
+    -- Safe deduplication of pre-existing un-indexed shadow duplicates (prioritizing worked/annotated records)
+    DELETE FROM campaign_recipients 
+    WHERE id NOT IN (
+      SELECT id FROM (
+        SELECT id, ROW_NUMBER() OVER (
+          PARTITION BY campaign_id, lead_id 
+          ORDER BY 
+            CASE WHEN status != 'pending' THEN 1 ELSE 2 END,
+            CASE WHEN last_contacted_at IS NOT NULL THEN 1 ELSE 2 END,
+            created_at DESC
+        ) as rn
+        FROM campaign_recipients
+        WHERE lead_id IS NOT NULL
+      ) WHERE rn = 1
+    ) AND lead_id IS NOT NULL;
+
+    DELETE FROM campaign_recipients 
+    WHERE id NOT IN (
+      SELECT id FROM (
+        SELECT id, ROW_NUMBER() OVER (
+          PARTITION BY campaign_id, company_id 
+          ORDER BY 
+            CASE WHEN status != 'pending' THEN 1 ELSE 2 END,
+            CASE WHEN last_contacted_at IS NOT NULL THEN 1 ELSE 2 END,
+            created_at DESC
+        ) as rn
+        FROM campaign_recipients
+        WHERE company_id IS NOT NULL
+      ) WHERE rn = 1
+    ) AND company_id IS NOT NULL;
+
     CREATE UNIQUE INDEX IF NOT EXISTS mktg_recipients_camp_lead_uidx ON campaign_recipients(campaign_id, lead_id) WHERE lead_id IS NOT NULL;
     CREATE UNIQUE INDEX IF NOT EXISTS mktg_recipients_camp_comp_uidx ON campaign_recipients(campaign_id, company_id) WHERE company_id IS NOT NULL;
   `);
