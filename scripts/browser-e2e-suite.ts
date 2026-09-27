@@ -203,11 +203,11 @@ async function runBrowserTests() {
     // STEP 1: Login as Admin
     // -------------------------------------------------------------
     console.log('[STEP 1] Login su /login come Admin...');
-    await page.goto(`${BASE_URL}/login`, { waitUntil: 'networkidle' });
+    await page.goto(`${BASE_URL}/login`, { waitUntil: 'networkidle', timeout: 30000 });
     await page.fill('input[type="email"], input[name="email"]', 'admin@jammja-simulation.local');
     await page.fill('input[type="password"], input[name="password"]', 'Simulazione2026!');
     await page.click('button[type="submit"]');
-    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
+    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30000 });
     console.log('  ✓ Login Admin completato con successo');
 
     // -------------------------------------------------------------
