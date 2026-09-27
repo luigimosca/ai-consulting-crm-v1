@@ -876,41 +876,40 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS mktg_recipients_lead_idx ON campaign_recipients(lead_id);
     CREATE INDEX IF NOT EXISTS mktg_recipients_company_idx ON campaign_recipients(company_id);
     CREATE INDEX IF NOT EXISTS mktg_recipients_status_idx ON campaign_recipients(status);
-
-    -- Safe deduplication of pre-existing un-indexed shadow duplicates (prioritizing worked/annotated records)
-    DELETE FROM campaign_recipients 
-    WHERE id NOT IN (
-      SELECT id FROM (
-        SELECT id, ROW_NUMBER() OVER (
-          PARTITION BY campaign_id, lead_id 
-          ORDER BY 
-            CASE WHEN status != 'pending' THEN 1 ELSE 2 END,
-            CASE WHEN last_contacted_at IS NOT NULL THEN 1 ELSE 2 END,
-            created_at DESC
-        ) as rn
-        FROM campaign_recipients
-        WHERE lead_id IS NOT NULL
-      ) WHERE rn = 1
-    ) AND lead_id IS NOT NULL;
-
-    DELETE FROM campaign_recipients 
-    WHERE id NOT IN (
-      SELECT id FROM (
-        SELECT id, ROW_NUMBER() OVER (
-          PARTITION BY campaign_id, company_id 
-          ORDER BY 
-            CASE WHEN status != 'pending' THEN 1 ELSE 2 END,
-            CASE WHEN last_contacted_at IS NOT NULL THEN 1 ELSE 2 END,
-            created_at DESC
-        ) as rn
-        FROM campaign_recipients
-        WHERE company_id IS NOT NULL
-      ) WHERE rn = 1
-    ) AND company_id IS NOT NULL;
-
-    CREATE UNIQUE INDEX IF NOT EXISTS mktg_recipients_camp_lead_uidx ON campaign_recipients(campaign_id, lead_id) WHERE lead_id IS NOT NULL;
-    CREATE UNIQUE INDEX IF NOT EXISTS mktg_recipients_camp_comp_uidx ON campaign_recipients(campaign_id, company_id) WHERE company_id IS NOT NULL;
   `);
+
+  // Non-destructive unique index bootstrap: detect conflicts without deleting any data or notes
+  try {
+    const leadDupes = sqlite.prepare(`
+      SELECT campaign_id, lead_id, COUNT(*) as cnt 
+      FROM campaign_recipients 
+      WHERE lead_id IS NOT NULL 
+      GROUP BY campaign_id, lead_id 
+      HAVING count(*) > 1
+    `).all() as Array<{ campaign_id: string; lead_id: string; cnt: number }>;
+
+    const compDupes = sqlite.prepare(`
+      SELECT campaign_id, company_id, COUNT(*) as cnt 
+      FROM campaign_recipients 
+      WHERE company_id IS NOT NULL 
+      GROUP BY campaign_id, company_id 
+      HAVING count(*) > 1
+    `).all() as Array<{ campaign_id: string; company_id: string; cnt: number }>;
+
+    if (leadDupes.length > 0 || compDupes.length > 0) {
+      console.warn(
+        `[initDatabase] Rilevati ${leadDupes.length + compDupes.length} gruppi di destinatari duplicati preesistenti in campaign_recipients. ` +
+        `Nessuna riga è stata eliminata. Gli indici UNIQUE verranno abilitati solo dopo bonifica controllata autorizzata.`
+      );
+    } else {
+      sqlite.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS mktg_recipients_camp_lead_uidx ON campaign_recipients(campaign_id, lead_id) WHERE lead_id IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS mktg_recipients_camp_comp_uidx ON campaign_recipients(campaign_id, company_id) WHERE company_id IS NOT NULL;
+      `);
+    }
+  } catch (err) {
+    console.warn('[initDatabase] Errore verifica indici univoci campaign_recipients:', err);
+  }
 
   // Migrazione retrocompatibile per colonne aggiuntive se le tabelle esistevano già
   const migrations = [

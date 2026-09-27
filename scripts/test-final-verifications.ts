@@ -291,12 +291,12 @@ async function runFinalVerifications() {
   // -------------------------------------------------------------------------
   // TEST 3: Bootstrap Indici Univoci su DB con Destinatari Preesistenti e Duplicati
   // -------------------------------------------------------------------------
-  console.log('[TEST 3/3] Bootstrap Indici Univoci su DB di Test con Duplicati Preesistenti...');
+  console.log('[TEST 3/3] Bootstrap Indici Univoci su DB di Test: Rilevamento Conflitti Senza Cancellazioni...');
   const tempDbPath = `sqlite_test_dedup_bootstrap_${Date.now()}.db`;
   const rawSqlite = new Database(tempDbPath);
 
   try {
-    // 1. Crea la tabella campaign_recipients SENZA indici univoci (simulazione DB legacy non migrato)
+    // 1. Crea le tabelle SENZA indici univoci (simulazione DB legacy non migrato)
     rawSqlite.exec(`
       CREATE TABLE users (
         id TEXT PRIMARY KEY,
@@ -336,108 +336,128 @@ async function runFinalVerifications() {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+
+      CREATE INDEX IF NOT EXISTS mktg_recipients_campaign_idx ON campaign_recipients(campaign_id);
+      CREATE INDEX IF NOT EXISTS mktg_recipients_lead_idx ON campaign_recipients(lead_id);
+      CREATE INDEX IF NOT EXISTS mktg_recipients_company_idx ON campaign_recipients(company_id);
+      CREATE INDEX IF NOT EXISTS mktg_recipients_status_idx ON campaign_recipients(status);
     `);
 
-    const campTestId = 'camp_test_legacy_101';
-    const leadTestId = 'lead_dup_legacy_202';
+    // SCENARIO 3.1: Duplicati con ENTRAMBI i record lavorati (note diverse)
+    const campWorked = 'camp_worked_dup';
+    const leadWorked = 'lead_worked_dup';
 
-    // 2. Inserimento di DUPLICATI preesistenti:
-    // Duplicate 1 (LAVORATO con note storiche):
     rawSqlite.prepare(`
       INSERT INTO campaign_recipients (id, campaign_id, lead_id, contact_person_name, status, last_contacted_at, outcome_notes, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      'recip_worked_historic_1',
-      campTestId,
-      leadTestId,
-      'Azienda Duplicata Srl',
-      'interested',
-      '2026-09-20T10:00:00Z',
-      'Nota di audit storica: cliente molto interessato a consulenza AI',
-      '2026-09-18T08:00:00Z',
-      '2026-09-20T10:00:00Z'
-    );
+    `).run('recip_worked_1', campWorked, leadWorked, 'Studio Rossi', 'contacted', '2026-09-21T09:00:00Z', 'Nota 1: Referente contattato da Mario', now, now);
 
-    // Duplicate 2 (Ombra ridondante unworked pending):
     rawSqlite.prepare(`
       INSERT INTO campaign_recipients (id, campaign_id, lead_id, contact_person_name, status, last_contacted_at, outcome_notes, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      'recip_shadow_pending_2',
-      campTestId,
-      leadTestId,
-      'Azienda Duplicata Srl',
-      'pending',
-      null,
-      null,
-      '2026-09-19T09:00:00Z',
-      '2026-09-19T09:00:00Z'
-    );
+    `).run('recip_worked_2', campWorked, leadWorked, 'Studio Rossi', 'interested', '2026-09-22T15:00:00Z', 'Nota 2: Richiesta demo avanzata registrata da Luigi', now, now);
 
-    const countBefore = rawSqlite.prepare(`SELECT count(*) as c FROM campaign_recipients WHERE campaign_id = ? AND lead_id = ?`).get(campTestId, leadTestId) as any;
-    console.log('  Righe duplicate presenti prima della migrazione:', countBefore.c);
-    if (countBefore.c !== 2) throw new Error('Preparazione record duplicati fallita');
+    // SCENARIO 3.2: Duplicati PENDING con DATI DIFFERENTI (email diverse e snapshot diversi)
+    const campPending = 'camp_pending_dup';
+    const leadPending = 'lead_pending_dup';
 
-    // 3. ESECUZIONE DELLA PROCEDURA DI BOOTSTRAP RESILIENTE (come in client.ts)
-    console.log('  -> Esecuzione deduplicazione protettiva e creazione indice univoco...');
-    rawSqlite.exec(`
-      DELETE FROM campaign_recipients 
-      WHERE id NOT IN (
-        SELECT id FROM (
-          SELECT id, ROW_NUMBER() OVER (
-            PARTITION BY campaign_id, lead_id 
-            ORDER BY 
-              CASE WHEN status != 'pending' THEN 1 ELSE 2 END,
-              CASE WHEN last_contacted_at IS NOT NULL THEN 1 ELSE 2 END,
-              created_at DESC
-          ) as rn
-          FROM campaign_recipients
-          WHERE lead_id IS NOT NULL
-        ) WHERE rn = 1
-      ) AND lead_id IS NOT NULL;
+    rawSqlite.prepare(`
+      INSERT INTO campaign_recipients (id, campaign_id, lead_id, recipient_email, custom_variables_snapshot_json, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('recip_pend_1', campPending, leadPending, 'sede.roma@azienda.it', '{"city":"Roma","address":"Via del Corso 1"}', 'pending', now, now);
 
-      CREATE UNIQUE INDEX IF NOT EXISTS mktg_recipients_camp_lead_uidx ON campaign_recipients(campaign_id, lead_id) WHERE lead_id IS NOT NULL;
-    `);
+    rawSqlite.prepare(`
+      INSERT INTO campaign_recipients (id, campaign_id, lead_id, recipient_email, custom_variables_snapshot_json, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('recip_pend_2', campPending, leadPending, 'sede.napoli@azienda.it', '{"city":"Napoli","address":"Via Toledo 10"}', 'pending', now, now);
 
-    // 4. Verifiche di Integrità:
-    // A. L'indice univoco è stato creato con successo senza errori
-    const indexes = rawSqlite.prepare(`PRAGMA index_list('campaign_recipients')`).all() as any[];
-    const hasUniqueIdx = indexes.some((idx) => idx.name === 'mktg_recipients_camp_lead_uidx' && idx.unique === 1);
-    console.log('  Indice Univoco Creato:', hasUniqueIdx);
-    if (!hasUniqueIdx) throw new Error('Indice univoco mktg_recipients_camp_lead_uidx non presente o non univoco');
+    console.log('  -> Esecuzione bootstrap non-distruttivo di rilevamento conflitti...');
 
-    // B. È rimasta esattamente 1 riga, e deve essere quella con la nota storica e lo stato 'interested'
-    const remainingRows = rawSqlite.prepare(`SELECT * FROM campaign_recipients WHERE campaign_id = ? AND lead_id = ?`).all(campTestId, leadTestId) as any[];
-    console.log('  Righe residue nel DB:', remainingRows.length);
-    if (remainingRows.length !== 1) throw new Error('Deduplicazione fallita: trovate più righe');
+    // Simulazione esatta della logica di bootstrap in client.ts
+    const leadDupes = rawSqlite.prepare(`
+      SELECT campaign_id, lead_id, COUNT(*) as cnt 
+      FROM campaign_recipients 
+      WHERE lead_id IS NOT NULL 
+      GROUP BY campaign_id, lead_id 
+      HAVING count(*) > 1
+    `).all() as Array<{ campaign_id: string; lead_id: string; cnt: number }>;
 
-    const preservedRow = remainingRows[0];
-    console.log('  Riga Preservata:', {
-      id: preservedRow.id,
-      status: preservedRow.status,
-      outcomeNotes: preservedRow.outcome_notes,
-      lastContactedAt: preservedRow.last_contacted_at,
-    });
+    console.log('  Gruppi di conflitti rilevati dal bootstrap:', leadDupes.length);
+    if (leadDupes.length !== 2) throw new Error('Rilevamento conflitti fallito');
 
-    if (preservedRow.id !== 'recip_worked_historic_1' || preservedRow.status !== 'interested' || !preservedRow.outcome_notes) {
-      throw new Error('ERRORE: La riga con storico/note non è stata preservata!');
+    let uniqueIndexCreated = false;
+    if (leadDupes.length > 0) {
+      console.log('  ✓ Segnalazione Conflitto: Trovati duplicati pregressi. Nessuna riga eliminata automaticamente.');
+    } else {
+      rawSqlite.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS mktg_recipients_camp_lead_uidx ON campaign_recipients(campaign_id, lead_id) WHERE lead_id IS NOT NULL;
+      `);
+      uniqueIndexCreated = true;
     }
-    console.log('  ✓ Preservazione Storica Garantita: La riga lavorata con note e timestamp è stata preservata.');
 
-    // C. Tentativo di inserire un nuovo duplicato DEVE fallire per vincolo SQLite UNIQUE
-    let caughtSqliteUniqueError = false;
+    if (uniqueIndexCreated) throw new Error('L\'indice UNIQUE non doveva essere creato prima della bonifica controllata!');
+
+    // Verifiche di non-distruzione Scenario 3.1:
+    const workedRows = rawSqlite.prepare(`SELECT * FROM campaign_recipients WHERE campaign_id = ? AND lead_id = ?`).all(campWorked, leadWorked) as any[];
+    console.log('  Righe Scenario Worked rimaste nel DB:', workedRows.length);
+    if (workedRows.length !== 2) throw new Error('ERRORE: Una riga lavorata è stata eliminata!');
+    if (!workedRows.some(r => r.outcome_notes?.includes('Nota 1')) || !workedRows.some(r => r.outcome_notes?.includes('Nota 2'))) {
+      throw new Error('ERRORE: Una delle note storiche è andata persa!');
+    }
+    console.log('  ✓ Preservazione Lavorati: Entrambi i record lavorati e tutte le note storiche sono rimaste intatte nel DB.');
+
+    // Verifiche di non-distruzione Scenario 3.2:
+    const pendingRows = rawSqlite.prepare(`SELECT * FROM campaign_recipients WHERE campaign_id = ? AND lead_id = ?`).all(campPending, leadPending) as any[];
+    console.log('  Righe Scenario Pending Dati Differenti rimaste nel DB:', pendingRows.length);
+    if (pendingRows.length !== 2) throw new Error('ERRORE: Una riga pending con dati diversi è stata eliminata!');
+    if (!pendingRows.some(r => r.recipient_email === 'sede.roma@azienda.it') || !pendingRows.some(r => r.recipient_email === 'sede.napoli@azienda.it')) {
+      throw new Error('ERRORE: Uno degli indirizzi email differenti è andato perso!');
+    }
+    console.log('  ✓ Preservazione Pending Dati Differenti: Entrambi gli indirizzi e snapshot differenti sono rimasti intatti nel DB.');
+
+    // SCENARIO 3.3: Database pulito -> Creazione Indice Univoco & Blocco Inserimenti
+    console.log('  -> Verifica su DB pulito (senza duplicati)...');
+    rawSqlite.prepare(`DELETE FROM campaign_recipients WHERE campaign_id IN (?, ?)`).run(campWorked, campPending);
+
+    const dupesClean = rawSqlite.prepare(`
+      SELECT campaign_id, lead_id, COUNT(*) as cnt 
+      FROM campaign_recipients 
+      WHERE lead_id IS NOT NULL 
+      GROUP BY campaign_id, lead_id 
+      HAVING count(*) > 1
+    `).all() as any[];
+
+    if (dupesClean.length === 0) {
+      rawSqlite.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS mktg_recipients_camp_lead_uidx ON campaign_recipients(campaign_id, lead_id) WHERE lead_id IS NOT NULL;
+      `);
+    }
+
+    const indexes = rawSqlite.prepare(`PRAGMA index_list('campaign_recipients')`).all() as any[];
+    const hasUnique = indexes.some(idx => idx.name === 'mktg_recipients_camp_lead_uidx' && idx.unique === 1);
+    console.log('  Indice Univoco abilitato su DB pulito:', hasUnique);
+    if (!hasUnique) throw new Error('Indice univoco non creato su DB pulito');
+
+    // Inserimento singolo
+    rawSqlite.prepare(`
+      INSERT INTO campaign_recipients (id, campaign_id, lead_id, contact_person_name, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run('recip_clean_1', 'camp_clean', 'lead_clean', 'Test Azienda', 'pending', now, now);
+
+    // Tentativo duplicato a runtime -> Deve fallire per vincolo SQLite UNIQUE
+    let caughtConstraint = false;
     try {
       rawSqlite.prepare(`
         INSERT INTO campaign_recipients (id, campaign_id, lead_id, contact_person_name, status, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run('recip_new_dup_attempt', campTestId, leadTestId, 'Azienda Duplicata Srl', 'pending', now, now);
+      `).run('recip_clean_2', 'camp_clean', 'lead_clean', 'Test Azienda Duplicata', 'pending', now, now);
     } catch (err: any) {
-      if (err.message.includes('UNIQUE constraint failed') || err.message.includes('constraint failed')) {
-        caughtSqliteUniqueError = true;
+      if (err.message.includes('UNIQUE constraint failed')) {
+        caughtConstraint = true;
         console.log('  ✓ Vincolo Univoco Attivo: Inserimento duplicato bloccato dal database (UNIQUE constraint failed).');
       }
     }
-    if (!caughtSqliteUniqueError) throw new Error('ERRORE: L\'indice univoco non ha impedito l\'inserimento del duplicato!');
+    if (!caughtConstraint) throw new Error('ERRORE: Inserimento duplicato non bloccato dal vincolo UNIQUE!');
 
     console.log('  ✓ TEST 3 SUPERATO CON SUCCESSO.\n');
   } finally {
