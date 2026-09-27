@@ -31,9 +31,11 @@ import {
   ShieldCheck,
   Compass,
   FileCheck,
+  Megaphone,
 } from 'lucide-react';
 
 import { ProjectAccessesTab } from '@/components/crm/ProjectAccessesTab';
+import { MarketingCampaignsTab } from '@/components/crm/MarketingCampaignsTab';
 
 const SECTOR_OPTIONS = [
   { value: 'horeca_ristoranti', label: 'Ristoranti & Horeca' },
@@ -54,7 +56,7 @@ export default function CompanyDetailPage({
 
   const [companyData, setCompanyData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'commesse' | 'projects' | 'quotes' | 'accounts'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'commesse' | 'projects' | 'quotes' | 'accounts' | 'marketing'>('overview');
 
   // Edit Modal State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -302,6 +304,18 @@ export default function CompanyDetailPage({
         >
           <ShieldCheck className="h-3.5 w-3.5 text-cyan-400" />
           <span>Account & Deleghe</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('marketing')}
+          className={`px-3.5 py-1.5 rounded-lg font-medium transition-colors flex items-center gap-1.5 shrink-0 ${
+            activeTab === 'marketing'
+              ? 'bg-purple-600/30 text-purple-300 border border-purple-500/40'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+          }`}
+        >
+          <Megaphone className="h-3.5 w-3.5 text-purple-400" />
+          <span>Marketing & Campagne</span>
         </button>
       </div>
 
@@ -563,6 +577,17 @@ export default function CompanyDetailPage({
             companyId={id}
             isManagerOrEditor={true}
             currentUserRole={companyData?.currentUser?.role}
+          />
+        </div>
+      )}
+
+      {/* TAB CONTENT: MARKETING & CAMPAIGNS */}
+      {activeTab === 'marketing' && (
+        <div className="space-y-4">
+          <MarketingCampaignsTab
+            targetType="companies"
+            targetId={id}
+            targetName={company.name}
           />
         </div>
       )}

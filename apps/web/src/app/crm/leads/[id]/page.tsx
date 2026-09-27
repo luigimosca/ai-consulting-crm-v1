@@ -7,6 +7,7 @@ import { ScoreBadge } from '@/components/crm/ScoreBadge';
 import { EnrichmentView, type EnrichmentDataDisplay } from '@/components/crm/EnrichmentView';
 import { ConsultingAuditReport } from '@/components/crm/ConsultingAuditReport';
 import { DecisionMakersView, type DecisionMakerItem } from '@/components/crm/DecisionMakersView';
+import { MarketingCampaignsTab } from '@/components/crm/MarketingCampaignsTab';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -45,6 +46,7 @@ import {
   FolderKanban,
   Plus,
   ArrowRight,
+  Megaphone,
 } from 'lucide-react';
 
 export default function LeadDetailPage({
@@ -66,7 +68,7 @@ export default function LeadDetailPage({
   const [outreachChannel, setOutreachChannel] = useState<'email' | 'whatsapp' | 'call'>('email');
 
   // Navigation tab
-  const [activeTab, setActiveTab] = useState<'overview' | 'audit' | 'reputation' | 'decision-makers' | 'quotes'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'audit' | 'reputation' | 'decision-makers' | 'quotes' | 'marketing'>('overview');
   const [selectedDecisionMaker, setSelectedDecisionMaker] = useState<DecisionMakerItem | null>(null);
   const [quotesList, setQuotesList] = useState<any[]>([]);
   const [isCreatingQuoteModalOpen, setIsCreatingQuoteModalOpen] = useState(false);
@@ -1053,6 +1055,19 @@ export default function LeadDetailPage({
             </span>
           )}
         </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('marketing')}
+          className={`px-4 py-2.5 rounded-t-lg font-semibold transition-colors flex items-center gap-2 ${
+            activeTab === 'marketing'
+              ? 'bg-slate-900 text-white border-t-2 border-purple-500'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900/40'
+          }`}
+        >
+          <Megaphone className="h-4 w-4 text-purple-400" />
+          <span>Marketing & Campagne</span>
+        </button>
       </div>
 
       {/* TAB 1: PANORAMICA & OUTREACH */}
@@ -1722,6 +1737,15 @@ export default function LeadDetailPage({
             </div>
           </Card>
         </div>
+      )}
+
+      {/* TAB: MARKETING & CAMPAIGNS */}
+      {activeTab === 'marketing' && (
+        <MarketingCampaignsTab
+          targetType="leads"
+          targetId={id}
+          targetName={lead.companyName}
+        />
       )}
 
       {/* MODAL: CREATE QUOTE */}

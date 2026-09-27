@@ -38,6 +38,12 @@ export const leads = sqliteTable('leads', {
   address: text('address'),
   city: text('city'),
   notes: text('notes'),
+  marketingConsentStatus: text('marketing_consent_status', {
+    enum: ['pending', 'granted', 'revoked', 'not_applicable'],
+  })
+    .notNull()
+    .default('pending'),
+  optedOutChannelsJson: text('opted_out_channels_json'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });
@@ -72,6 +78,12 @@ export const companies = sqliteTable('companies', {
   confidence: text('confidence'),
   rawSourceData: text('raw_source_data'),
   fieldSourcesJson: text('field_sources_json'),
+  marketingConsentStatus: text('marketing_consent_status', {
+    enum: ['pending', 'granted', 'revoked', 'not_applicable'],
+  })
+    .notNull()
+    .default('pending'),
+  optedOutChannelsJson: text('opted_out_channels_json'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });
@@ -1068,6 +1080,132 @@ export const projectPlatformAccountLinks = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// FASE MARKETING HUB: Segmenti Dinamici, Campagne & Destinatari
+// ---------------------------------------------------------------------------
+
+export const marketingSegments = sqliteTable(
+  'marketing_segments',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    description: text('description'),
+    targetType: text('target_type', { enum: ['leads', 'companies'] })
+      .notNull()
+      .default('leads'),
+    rulesJson: text('rules_json').notNull(),
+    naturalLanguageSummary: text('natural_language_summary'),
+    estimatedCount: integer('estimated_count').notNull().default(0),
+    createdBy: text('created_by').references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    targetTypeIdx: index('mktg_segments_target_type_idx').on(table.targetType),
+    createdByIdx: index('mktg_segments_created_by_idx').on(table.createdBy),
+  })
+);
+
+export const marketingCampaigns = sqliteTable(
+  'marketing_campaigns',
+  {
+    id: text('id').primaryKey(),
+    code: text('code').notNull().unique(), // e.g. CAMP-2026-0001
+    name: text('name').notNull(),
+    objective: text('objective', {
+      enum: [
+        'lead_generation',
+        'nurturing',
+        'upselling',
+        'reengagement',
+        'event_invitation',
+        'other',
+      ],
+    })
+      .notNull()
+      .default('lead_generation'),
+    channel: text('channel', {
+      enum: ['email', 'whatsapp', 'phone_outreach', 'mixed', 'manual_task'],
+    })
+      .notNull()
+      .default('email'),
+    status: text('status', {
+      enum: [
+        'draft',
+        'in_review',
+        'approved',
+        'scheduled',
+        'active',
+        'paused',
+        'completed',
+        'archived',
+      ],
+    })
+      .notNull()
+      .default('draft'),
+    segmentId: text('segment_id').references(() => marketingSegments.id),
+    contentSubject: text('content_subject'),
+    contentBody: text('content_body'),
+    dynamicVariablesJson: text('dynamic_variables_json'),
+    scheduledStartAt: text('scheduled_start_at'),
+    scheduledEndAt: text('scheduled_end_at'),
+    ownerUserId: text('owner_user_id').references(() => users.id),
+    approvedByUserId: text('approved_by_user_id').references(() => users.id),
+    approvedAt: text('approved_at'),
+    notes: text('notes'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    codeIdx: index('mktg_campaigns_code_idx').on(table.code),
+    statusIdx: index('mktg_campaigns_status_idx').on(table.status),
+    segmentIdx: index('mktg_campaigns_segment_idx').on(table.segmentId),
+    ownerIdx: index('mktg_campaigns_owner_idx').on(table.ownerUserId),
+  })
+);
+
+export const campaignRecipients = sqliteTable(
+  'campaign_recipients',
+  {
+    id: text('id').primaryKey(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => marketingCampaigns.id),
+    leadId: text('lead_id').references(() => leads.id),
+    companyId: text('company_id').references(() => companies.id),
+    recipientEmail: text('recipient_email'),
+    recipientPhone: text('recipient_phone'),
+    contactPersonName: text('contact_person_name'),
+    status: text('status', {
+      enum: [
+        'pending',
+        'excluded_no_consent',
+        'excluded_missing_contact',
+        'contacted',
+        'replied',
+        'interested',
+        'not_interested',
+        'converted',
+        'bounced',
+      ],
+    })
+      .notNull()
+      .default('pending'),
+    exclusionReason: text('exclusion_reason'),
+    customVariablesSnapshotJson: text('custom_variables_snapshot_json'),
+    lastContactedAt: text('last_contacted_at'),
+    outcomeNotes: text('outcome_notes'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    campaignIdx: index('mktg_recipients_campaign_idx').on(table.campaignId),
+    leadIdx: index('mktg_recipients_lead_idx').on(table.leadId),
+    companyIdx: index('mktg_recipients_company_idx').on(table.companyId),
+    statusIdx: index('mktg_recipients_status_idx').on(table.status),
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Type Exports
 // ---------------------------------------------------------------------------
 
@@ -1184,5 +1322,15 @@ export type NewClientPlatformAccount = typeof clientPlatformAccounts.$inferInser
 
 export type ProjectPlatformAccountLink = typeof projectPlatformAccountLinks.$inferSelect;
 export type NewProjectPlatformAccountLink = typeof projectPlatformAccountLinks.$inferInsert;
+
+export type MarketingSegment = typeof marketingSegments.$inferSelect;
+export type NewMarketingSegment = typeof marketingSegments.$inferInsert;
+
+export type MarketingCampaign = typeof marketingCampaigns.$inferSelect;
+export type NewMarketingCampaign = typeof marketingCampaigns.$inferInsert;
+
+export type CampaignRecipient = typeof campaignRecipients.$inferSelect;
+export type NewCampaignRecipient = typeof campaignRecipients.$inferInsert;
+
 
 

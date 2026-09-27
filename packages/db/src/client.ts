@@ -814,10 +814,76 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS proj_plat_link_project_idx ON project_platform_account_links(project_id);
     CREATE INDEX IF NOT EXISTS proj_plat_link_account_idx ON project_platform_account_links(account_id);
     CREATE UNIQUE INDEX IF NOT EXISTS proj_plat_link_uniq ON project_platform_account_links(project_id, account_id);
+
+    -- Marketing Hub Tables
+    CREATE TABLE IF NOT EXISTS marketing_segments (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      target_type TEXT NOT NULL DEFAULT 'leads',
+      rules_json TEXT NOT NULL,
+      natural_language_summary TEXT,
+      estimated_count INTEGER NOT NULL DEFAULT 0,
+      created_by TEXT REFERENCES users(id),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS mktg_segments_target_type_idx ON marketing_segments(target_type);
+    CREATE INDEX IF NOT EXISTS mktg_segments_created_by_idx ON marketing_segments(created_by);
+
+    CREATE TABLE IF NOT EXISTS marketing_campaigns (
+      id TEXT PRIMARY KEY,
+      code TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      objective TEXT NOT NULL DEFAULT 'lead_generation',
+      channel TEXT NOT NULL DEFAULT 'email',
+      status TEXT NOT NULL DEFAULT 'draft',
+      segment_id TEXT REFERENCES marketing_segments(id),
+      content_subject TEXT,
+      content_body TEXT,
+      dynamic_variables_json TEXT,
+      scheduled_start_at TEXT,
+      scheduled_end_at TEXT,
+      owner_user_id TEXT REFERENCES users(id),
+      approved_by_user_id TEXT REFERENCES users(id),
+      approved_at TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS mktg_campaigns_code_idx ON marketing_campaigns(code);
+    CREATE INDEX IF NOT EXISTS mktg_campaigns_status_idx ON marketing_campaigns(status);
+    CREATE INDEX IF NOT EXISTS mktg_campaigns_segment_idx ON marketing_campaigns(segment_id);
+    CREATE INDEX IF NOT EXISTS mktg_campaigns_owner_idx ON marketing_campaigns(owner_user_id);
+
+    CREATE TABLE IF NOT EXISTS campaign_recipients (
+      id TEXT PRIMARY KEY,
+      campaign_id TEXT NOT NULL REFERENCES marketing_campaigns(id),
+      lead_id TEXT REFERENCES leads(id),
+      company_id TEXT REFERENCES companies(id),
+      recipient_email TEXT,
+      recipient_phone TEXT,
+      contact_person_name TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      exclusion_reason TEXT,
+      custom_variables_snapshot_json TEXT,
+      last_contacted_at TEXT,
+      outcome_notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS mktg_recipients_campaign_idx ON campaign_recipients(campaign_id);
+    CREATE INDEX IF NOT EXISTS mktg_recipients_lead_idx ON campaign_recipients(lead_id);
+    CREATE INDEX IF NOT EXISTS mktg_recipients_company_idx ON campaign_recipients(company_id);
+    CREATE INDEX IF NOT EXISTS mktg_recipients_status_idx ON campaign_recipients(status);
   `);
 
   // Migrazione retrocompatibile per colonne aggiuntive se le tabelle esistevano già
   const migrations = [
+    'ALTER TABLE leads ADD COLUMN marketing_consent_status TEXT NOT NULL DEFAULT "pending"',
+    'ALTER TABLE leads ADD COLUMN opted_out_channels_json TEXT',
+    'ALTER TABLE companies ADD COLUMN marketing_consent_status TEXT NOT NULL DEFAULT "pending"',
+    'ALTER TABLE companies ADD COLUMN opted_out_channels_json TEXT',
     'ALTER TABLE client_platform_accounts ADD COLUMN verification_type TEXT NOT NULL DEFAULT "manual_operator"',
     'ALTER TABLE client_platform_accounts ADD COLUMN revoked_at TEXT',
     'ALTER TABLE client_platform_accounts ADD COLUMN revoked_by_user_id TEXT',
