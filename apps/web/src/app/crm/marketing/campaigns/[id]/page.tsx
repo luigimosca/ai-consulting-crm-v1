@@ -652,7 +652,8 @@ export default function CampaignStudioDetailPage({
                 <tr>
                   <th className="py-3 px-3">Destinatario / Azienda</th>
                   <th className="py-3 px-3">Canale & Contatto</th>
-                  <th className="py-3 px-3">Stato Outreach</th>
+                  <th className="py-3 px-3">Stato Storico Snapshot</th>
+                  <th className="py-3 px-3">Verifica Privacy Live</th>
                   <th className="py-3 px-3">Ultimo Contatto</th>
                   <th className="py-3 px-3">Note Esito</th>
                   <th className="py-3 px-3 text-right">Azioni</th>
@@ -702,6 +703,22 @@ export default function CampaignStudioDetailPage({
                         {r.status.replace(/_/g, ' ')}
                       </span>
                     </td>
+                    <td className="py-3 px-3">
+                      {r.isCurrentlyContactable !== false ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 px-2 py-0.5 rounded font-medium">
+                          <CheckCircle2 className="h-3 w-3" />
+                          <span>Consenso Valido</span>
+                        </span>
+                      ) : (
+                        <span
+                          className="inline-flex items-center gap-1 text-[11px] text-rose-300 bg-rose-950/60 border border-rose-800/60 px-2 py-0.5 rounded font-semibold"
+                          title={r.liveComplianceWarning || 'Consenso revocato post-snapshot'}
+                        >
+                          <AlertCircle className="h-3 w-3 text-rose-400" />
+                          <span>Non Contattabile (Post-Snapshot)</span>
+                        </span>
+                      )}
+                    </td>
                     <td className="py-3 px-3 text-slate-400">
                       {r.lastContactedAt ? new Date(r.lastContactedAt).toLocaleDateString('it-IT') : '-'}
                     </td>
@@ -737,6 +754,22 @@ export default function CampaignStudioDetailPage({
         title={`Aggiorna Stato Contatto: ${selectedRecipient?.contactPersonName || 'Destinatario'}`}
       >
         <form onSubmit={handleUpdateRecipientStatus} className="space-y-4 text-xs">
+          {selectedRecipient?.isCurrentlyContactable === false && (
+            <div className="p-3 rounded-lg bg-rose-950/50 border border-rose-800/60 text-rose-200 space-y-1.5">
+              <div className="font-semibold flex items-center gap-1.5 text-rose-300 text-xs">
+                <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+                <span>Blocco Privacy Live: Destinatario Non Contattabile</span>
+              </div>
+              <p className="text-[11px] text-rose-300/90 leading-relaxed">
+                {selectedRecipient.liveComplianceWarning ||
+                  'Il contatto ha revocato il consenso marketing o ha escluso questo canale dopo l\'arruolamento.'}
+              </p>
+              <p className="text-[10px] text-rose-400/80 italic">
+                Qualsiasi registrazione di contatto positivo verrà respinta dal sistema per tutela GDPR.
+              </p>
+            </div>
+          )}
+
           <div className="space-y-1">
             <label className="font-medium text-slate-300 block">Nuovo Stato Destinatario</label>
             <select
@@ -751,6 +784,7 @@ export default function CampaignStudioDetailPage({
               <option value="converted">Convertito (Cliente Confermato)</option>
               <option value="not_interested">Non Interessato</option>
               <option value="bounced">Non Raggiungibile (Bounce / Numero errato)</option>
+              <option value="excluded_no_consent">Escluso (Consenso non valido)</option>
             </select>
           </div>
 

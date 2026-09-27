@@ -18,6 +18,9 @@ export async function POST(
     if (error?.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Non autenticato' }, { status: 401 });
     }
+    if (error?.message?.startsWith('FORBIDDEN')) {
+      return NextResponse.json({ error: error.message.replace('FORBIDDEN: ', '') }, { status: 403 });
+    }
     if (error?.message?.startsWith('NOT_FOUND')) {
       return NextResponse.json({ error: 'Campagna non trovata' }, { status: 404 });
     }

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(),
@@ -1202,6 +1202,8 @@ export const campaignRecipients = sqliteTable(
     leadIdx: index('mktg_recipients_lead_idx').on(table.leadId),
     companyIdx: index('mktg_recipients_company_idx').on(table.companyId),
     statusIdx: index('mktg_recipients_status_idx').on(table.status),
+    uniqueCampaignLeadIdx: uniqueIndex('mktg_recipients_camp_lead_uidx').on(table.campaignId, table.leadId),
+    uniqueCampaignCompIdx: uniqueIndex('mktg_recipients_camp_comp_uidx').on(table.campaignId, table.companyId),
   })
 );
 

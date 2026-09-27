@@ -450,6 +450,11 @@ export async function updateSegment(
   const existing = db.select().from(marketingSegments).where(eq(marketingSegments.id, id)).get();
   if (!existing) throw new Error('NOT_FOUND: Segmento non trovato');
 
+  // Operator permission check: operator can only edit segments they created
+  if (user.role !== 'admin' && existing.createdBy && existing.createdBy !== user.userId) {
+    throw new Error('FORBIDDEN: Non puoi modificare un segmento creato da un altro utente');
+  }
+
   const now = new Date().toISOString();
   const updatePayload: Partial<typeof marketingSegments.$inferInsert> = {
     updatedAt: now,
@@ -481,6 +486,17 @@ export async function updateSegment(
 export async function deleteSegment(id: string, user: UserSessionPayload): Promise<boolean> {
   const existing = db.select().from(marketingSegments).where(eq(marketingSegments.id, id)).get();
   if (!existing) throw new Error('NOT_FOUND: Segmento non trovato');
+
+  // Operator permission check: operator can only delete segments they created
+  if (user.role !== 'admin' && existing.createdBy && existing.createdBy !== user.userId) {
+    throw new Error('FORBIDDEN: Non puoi eliminare un segmento creato da un altro utente');
+  }
+
+  // Prevent deleting segments attached to active or draft campaigns
+  const linkedCampaigns = db.select({ id: marketingCampaigns.id }).from(marketingCampaigns).where(eq(marketingCampaigns.segmentId, id)).all();
+  if (linkedCampaigns.length > 0) {
+    throw new Error('FORBIDDEN: Impossibile eliminare un segmento collegato a campagne esistenti');
+  }
 
   db.delete(marketingSegments).where(eq(marketingSegments.id, id)).run();
   return true;
@@ -577,6 +593,16 @@ export async function updateCampaign(
     throw new Error('FORBIDDEN: Solo gli amministratori possono approvare una campagna');
   }
 
+  // Operator entity ownership check
+  if (user.role !== 'admin' && existing.ownerUserId && existing.ownerUserId !== user.userId) {
+    throw new Error('FORBIDDEN: Non puoi modificare una campagna creata da un altro operatore');
+  }
+
+  // Operator state lifecycle check: cannot modify locked states
+  if (user.role !== 'admin' && ['approved', 'active', 'archived'].includes(existing.status)) {
+    throw new Error('FORBIDDEN: Solo gli amministratori possono modificare una campagna già approvata, attiva o archiviata');
+  }
+
   const now = new Date().toISOString();
   const updatePayload: Partial<typeof marketingCampaigns.$inferInsert> = {
     updatedAt: now,
@@ -611,6 +637,10 @@ export async function submitCampaignForReview(
 ): Promise<MarketingCampaign> {
   const existing = db.select().from(marketingCampaigns).where(eq(marketingCampaigns.id, id)).get();
   if (!existing) throw new Error('NOT_FOUND: Campagna non trovata');
+
+  if (user.role !== 'admin' && existing.ownerUserId && existing.ownerUserId !== user.userId) {
+    throw new Error('FORBIDDEN: Non puoi inviare in revisione una campagna creata da un altro operatore');
+  }
 
   if (existing.status !== 'draft') {
     throw new Error('INVALID_STATE: Solo le campagne in bozza possono essere inviate per revisione');
@@ -696,6 +726,14 @@ export async function populateCampaignRecipients(
   const campaign = db.select().from(marketingCampaigns).where(eq(marketingCampaigns.id, campaignId)).get();
   if (!campaign || !campaign.segmentId) return 0;
 
+  if (user.role !== 'admin' && campaign.ownerUserId && campaign.ownerUserId !== user.userId) {
+    throw new Error('FORBIDDEN: Non puoi popolare i destinatari di una campagna appartenente a un altro operatore');
+  }
+
+  if (user.role !== 'admin' && ['approved', 'active', 'archived'].includes(campaign.status)) {
+    throw new Error('FORBIDDEN: Non puoi modificare i destinatari di una campagna già approvata o chiusa');
+  }
+
   const segment = db.select().from(marketingSegments).where(eq(marketingSegments.id, campaign.segmentId)).get();
   if (!segment) return 0;
 
@@ -708,7 +746,7 @@ export async function populateCampaignRecipients(
 
   const now = new Date().toISOString();
 
-  // Delete previous pending recipients for this campaign to refresh
+  // Delete previous pending un-worked recipients for this campaign to refresh
   db.delete(campaignRecipients)
     .where(and(eq(campaignRecipients.campaignId, campaignId), eq(campaignRecipients.status, 'pending')))
     .run();
@@ -735,7 +773,7 @@ export async function populateCampaignRecipients(
     let exclusionReason: string | null = null;
 
     if (!c.isEligible) {
-      if (c.exclusionReason?.includes('Consenso')) {
+      if (c.exclusionReason?.includes('Consenso') || c.exclusionReason?.includes('opt-out')) {
         recipientStatus = 'excluded_no_consent';
       } else {
         recipientStatus = 'excluded_missing_contact';
@@ -743,31 +781,37 @@ export async function populateCampaignRecipients(
       exclusionReason = c.exclusionReason || null;
     }
 
-    db.insert(campaignRecipients)
-      .values({
-        id: recipientId,
-        campaignId,
-        leadId: c.targetType === 'leads' ? c.id : null,
-        companyId: c.targetType === 'companies' ? c.id : null,
-        recipientEmail: c.email || null,
-        recipientPhone: c.phone || null,
-        contactPersonName: c.name,
-        status: recipientStatus,
-        exclusionReason,
-        customVariablesSnapshotJson: JSON.stringify({
-          companyName: c.name,
-          sector: c.sector,
-          city: c.city || '',
-          score: c.score || 0,
-        }),
-        lastContactedAt: null,
-        outcomeNotes: null,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
+    try {
+      db.insert(campaignRecipients)
+        .values({
+          id: recipientId,
+          campaignId,
+          leadId: c.targetType === 'leads' ? c.id : null,
+          companyId: c.targetType === 'companies' ? c.id : null,
+          recipientEmail: c.email || null,
+          recipientPhone: c.phone || null,
+          contactPersonName: c.name,
+          status: recipientStatus,
+          exclusionReason,
+          customVariablesSnapshotJson: JSON.stringify({
+            companyName: c.name,
+            sector: c.sector,
+            city: c.city || '',
+            score: c.score || 0,
+          }),
+          lastContactedAt: null,
+          outcomeNotes: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
 
-    insertedCount++;
+      existingIds.add(key);
+      insertedCount++;
+    } catch (err) {
+      // In case of unique index race or duplicate candidate ID
+      console.warn(`Skipping duplicate recipient for campaign ${campaignId}: ${key}`, err);
+    }
   }
 
   return insertedCount;
@@ -776,10 +820,96 @@ export async function populateCampaignRecipients(
 export async function updateRecipientStatus(
   recipientId: string,
   input: UpdateRecipientStatusInput,
-  user: UserSessionPayload
+  user: UserSessionPayload,
+  campaignIdParam?: string
 ): Promise<CampaignRecipient> {
   const existing = db.select().from(campaignRecipients).where(eq(campaignRecipients.id, recipientId)).get();
   if (!existing) throw new Error('NOT_FOUND: Destinatario non trovato');
+
+  // Verify campaignId if passed
+  if (campaignIdParam && existing.campaignId !== campaignIdParam) {
+    throw new Error('FORBIDDEN: Il destinatario non appartiene alla campagna specificata');
+  }
+
+  const campaign = db.select().from(marketingCampaigns).where(eq(marketingCampaigns.id, existing.campaignId)).get();
+  if (!campaign) throw new Error('NOT_FOUND: Campagna non trovata');
+
+  // Operator check: operator can only update recipients of campaigns they own
+  if (user.role !== 'admin' && campaign.ownerUserId && campaign.ownerUserId !== user.userId) {
+    throw new Error('FORBIDDEN: Non puoi modificare i destinatari di una campagna appartenente a un altro operatore');
+  }
+
+  // LIVE GDPR & Channel Opt-Out Check at time of action
+  let liveConsent = 'pending';
+  let isOptedOutOnChannel = false;
+
+  if (existing.leadId) {
+    const liveLead = db.select({ marketingConsentStatus: leads.marketingConsentStatus, optedOutChannelsJson: leads.optedOutChannelsJson }).from(leads).where(eq(leads.id, existing.leadId)).get();
+    if (liveLead) {
+      liveConsent = liveLead.marketingConsentStatus || 'pending';
+      if (liveLead.optedOutChannelsJson) {
+        try {
+          const opts = JSON.parse(liveLead.optedOutChannelsJson);
+          if (Array.isArray(opts) && opts.includes(campaign.channel)) isOptedOutOnChannel = true;
+        } catch {}
+      }
+    }
+  } else if (existing.companyId) {
+    const liveCompany = db.select({ marketingConsentStatus: companies.marketingConsentStatus, optedOutChannelsJson: companies.optedOutChannelsJson }).from(companies).where(eq(companies.id, existing.companyId)).get();
+    if (liveCompany) {
+      liveConsent = liveCompany.marketingConsentStatus || 'pending';
+      if (liveCompany.optedOutChannelsJson) {
+        try {
+          const opts = JSON.parse(liveCompany.optedOutChannelsJson);
+          if (Array.isArray(opts) && opts.includes(campaign.channel)) isOptedOutOnChannel = true;
+        } catch {}
+      }
+    }
+  }
+
+  const isLiveRevoked = liveConsent === 'revoked' || isOptedOutOnChannel;
+  const isPositiveContactAction = ['contacted', 'interested', 'replied', 'converted'].includes(input.status);
+
+  if (isLiveRevoked && isPositiveContactAction) {
+    const reason = liveConsent === 'revoked'
+      ? 'il contatto ha revocato il consenso privacy successivamente all\'arruolamento'
+      : `il contatto ha escluso il canale (${campaign.channel}) successivamente all\'arruolamento`;
+
+    // Automatically update recipient record to excluded_no_consent
+    const now = new Date().toISOString();
+    db.update(campaignRecipients)
+      .set({
+        status: 'excluded_no_consent',
+        exclusionReason: `Blocco Privacy Live: ${reason}`,
+        updatedAt: now,
+      })
+      .where(eq(campaignRecipients.id, recipientId))
+      .run();
+
+    try {
+      db.insert(activityLog)
+        .values({
+          id: `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          entityType: 'campaign_recipient',
+          entityId: recipientId,
+          action: 'recipient_privacy_blocked_auto_excluded',
+          performedBy: user.userId,
+          detailsJson: JSON.stringify({
+            campaignId: existing.campaignId,
+            attemptedStatus: input.status,
+            reason,
+            convertedStatus: 'excluded_no_consent',
+          }),
+          beforeJson: JSON.stringify({ status: existing.status }),
+          afterJson: JSON.stringify({ status: 'excluded_no_consent' }),
+          ipAddress: null,
+          createdAt: now,
+        })
+        .run();
+    } catch {}
+
+    throw new Error(`FORBIDDEN_PRIVACY: Impossibile procedere con il contatto: ${reason}.`);
+  }
 
   const now = new Date().toISOString();
   db.update(campaignRecipients)
@@ -791,6 +921,28 @@ export async function updateRecipientStatus(
     })
     .where(eq(campaignRecipients.id, recipientId))
     .run();
+
+  try {
+    db.insert(activityLog)
+      .values({
+        id: `act_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        entityType: 'campaign_recipient',
+        entityId: recipientId,
+        action: 'recipient_status_updated',
+        performedBy: user.userId,
+        detailsJson: JSON.stringify({
+          campaignId: existing.campaignId,
+          previousStatus: existing.status,
+          newStatus: input.status,
+          outcomeNotes: input.outcomeNotes || null,
+        }),
+        beforeJson: JSON.stringify({ status: existing.status, outcomeNotes: existing.outcomeNotes }),
+        afterJson: JSON.stringify({ status: input.status, outcomeNotes: input.outcomeNotes || null }),
+        ipAddress: null,
+        createdAt: now,
+      })
+      .run();
+  } catch {}
 
   const updated = db.select().from(campaignRecipients).where(eq(campaignRecipients.id, recipientId)).get();
   return updated!;
@@ -810,6 +962,51 @@ export async function getCampaignDetails(id: string) {
     .where(eq(campaignRecipients.campaignId, id))
     .all();
 
+  // Perform live lookup on current lead/company privacy & opt-out status
+  const leadIds = recipients.map((r) => r.leadId).filter(Boolean) as string[];
+  const companyIds = recipients.map((r) => r.companyId).filter(Boolean) as string[];
+
+  const liveLeads = leadIds.length > 0
+    ? db.select({ id: leads.id, marketingConsentStatus: leads.marketingConsentStatus, optedOutChannelsJson: leads.optedOutChannelsJson }).from(leads).where(inArray(leads.id, leadIds)).all()
+    : [];
+  const liveCompanies = companyIds.length > 0
+    ? db.select({ id: companies.id, marketingConsentStatus: companies.marketingConsentStatus, optedOutChannelsJson: companies.optedOutChannelsJson }).from(companies).where(inArray(companies.id, companyIds)).all()
+    : [];
+
+  const liveLeadMap = new Map(liveLeads.map((l) => [l.id, l]));
+  const liveCompanyMap = new Map(liveCompanies.map((c) => [c.id, c]));
+
+  const enrichedRecipients = recipients.map((r) => {
+    const liveEntity = r.leadId ? liveLeadMap.get(r.leadId) : (r.companyId ? liveCompanyMap.get(r.companyId) : null);
+    const liveConsent = liveEntity?.marketingConsentStatus || 'pending';
+    let optedOutChannels: string[] = [];
+    try {
+      if (liveEntity?.optedOutChannelsJson) {
+        optedOutChannels = JSON.parse(liveEntity.optedOutChannelsJson);
+      }
+    } catch {}
+
+    const isOptedOutOnChannel = Array.isArray(optedOutChannels) && optedOutChannels.includes(campaign.channel);
+    const isLiveConsentRevoked = liveConsent === 'revoked' || isOptedOutOnChannel;
+    const isCurrentlyContactable = !isLiveConsentRevoked && r.status !== 'excluded_missing_contact';
+
+    let liveComplianceWarning: string | null = null;
+    if (liveConsent === 'revoked') {
+      liveComplianceWarning = 'Consenso privacy revocato dal contatto post-snapshot.';
+    } else if (isOptedOutOnChannel) {
+      liveComplianceWarning = `Il contatto ha escluso le comunicazioni per il canale ${campaign.channel}.`;
+    }
+
+    return {
+      ...r,
+      currentConsentStatus: liveConsent,
+      isOptedOutOnChannel,
+      isLiveConsentRevoked,
+      isCurrentlyContactable,
+      liveComplianceWarning,
+    };
+  });
+
   const owner = campaign.ownerUserId
     ? db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.id, campaign.ownerUserId)).get()
     : null;
@@ -819,7 +1016,7 @@ export async function getCampaignDetails(id: string) {
     : null;
 
   const statusCounts: Record<string, number> = {};
-  for (const r of recipients) {
+  for (const r of enrichedRecipients) {
     statusCounts[r.status] = (statusCounts[r.status] || 0) + 1;
   }
 
@@ -828,8 +1025,8 @@ export async function getCampaignDetails(id: string) {
     segment,
     owner,
     approver,
-    recipients,
-    totalRecipients: recipients.length,
+    recipients: enrichedRecipients,
+    totalRecipients: enrichedRecipients.length,
     statusCounts,
   };
 }

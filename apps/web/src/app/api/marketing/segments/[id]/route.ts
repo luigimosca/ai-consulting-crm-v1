@@ -47,8 +47,8 @@ export async function PATCH(
     if (error?.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Non autenticato' }, { status: 401 });
     }
-    if (error?.message === 'FORBIDDEN') {
-      return NextResponse.json({ error: 'Accesso non autorizzato' }, { status: 403 });
+    if (error?.message?.startsWith('FORBIDDEN')) {
+      return NextResponse.json({ error: error.message.replace('FORBIDDEN: ', '') }, { status: 403 });
     }
     if (error?.message?.startsWith('NOT_FOUND')) {
       return NextResponse.json({ error: 'Segmento non trovato' }, { status: 404 });
@@ -74,8 +74,8 @@ export async function DELETE(
     if (error?.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Non autenticato' }, { status: 401 });
     }
-    if (error?.message === 'FORBIDDEN') {
-      return NextResponse.json({ error: 'Accesso non autorizzato' }, { status: 403 });
+    if (error?.message?.startsWith('FORBIDDEN')) {
+      return NextResponse.json({ error: error.message.replace('FORBIDDEN: ', '') }, { status: 403 });
     }
     if (error?.message?.startsWith('NOT_FOUND')) {
       return NextResponse.json({ error: 'Segmento non trovato' }, { status: 404 });

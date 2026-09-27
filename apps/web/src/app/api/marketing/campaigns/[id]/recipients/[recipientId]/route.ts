@@ -10,7 +10,7 @@ export async function PATCH(
 ) {
   try {
     const user = await requireAuth(['admin', 'operator']);
-    const { recipientId } = await params;
+    const { id, recipientId } = await params;
     const body = await request.json();
 
     if (!body.status) {
@@ -23,13 +23,26 @@ export async function PATCH(
         status: body.status,
         outcomeNotes: body.outcomeNotes,
       },
-      user
+      user,
+      id
     );
 
     return NextResponse.json({ success: true, recipient: updated });
   } catch (error: any) {
     if (error?.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Non autenticato' }, { status: 401 });
+    }
+    if (error?.message?.startsWith('FORBIDDEN_PRIVACY')) {
+      return NextResponse.json(
+        { error: error.message.replace('FORBIDDEN_PRIVACY: ', '') },
+        { status: 403 }
+      );
+    }
+    if (error?.message?.startsWith('FORBIDDEN')) {
+      return NextResponse.json(
+        { error: error.message.replace('FORBIDDEN: ', '') },
+        { status: 403 }
+      );
     }
     if (error?.message?.startsWith('NOT_FOUND')) {
       return NextResponse.json({ error: 'Destinatario non trovato' }, { status: 404 });

@@ -876,6 +876,8 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS mktg_recipients_lead_idx ON campaign_recipients(lead_id);
     CREATE INDEX IF NOT EXISTS mktg_recipients_company_idx ON campaign_recipients(company_id);
     CREATE INDEX IF NOT EXISTS mktg_recipients_status_idx ON campaign_recipients(status);
+    CREATE UNIQUE INDEX IF NOT EXISTS mktg_recipients_camp_lead_uidx ON campaign_recipients(campaign_id, lead_id) WHERE lead_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS mktg_recipients_camp_comp_uidx ON campaign_recipients(campaign_id, company_id) WHERE company_id IS NOT NULL;
   `);
 
   // Migrazione retrocompatibile per colonne aggiuntive se le tabelle esistevano già
