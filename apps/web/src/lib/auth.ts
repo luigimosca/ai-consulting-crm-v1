@@ -12,8 +12,10 @@ import {
   clientRequests,
   clientRequestItems,
   documents,
+  clientPlatformAccounts,
+  projectPlatformAccountLinks,
 } from '@ai-crm/db';
-import { eq, and, or } from 'drizzle-orm';
+import { eq, and, or, inArray } from 'drizzle-orm';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.AUTH_SECRET || 'super-secret-ai-agency-key-change-in-prod-2026'
@@ -290,5 +292,92 @@ export function canUserAccessDocument(user: { userId: string; role: string }, do
     return canUserAccessClientRequest(user, linkedItem.requestId, 'view');
   }
 
+  // Check if this document is linked as evidence in clientPlatformAccounts
+  const linkedAccount = db
+    .select({ id: clientPlatformAccounts.id })
+    .from(clientPlatformAccounts)
+    .where(eq(clientPlatformAccounts.evidenceDocumentId, doc.id))
+    .get();
+
+  if (linkedAccount) {
+    return canUserAccessPlatformAccount(user, linkedAccount.id, 'view');
+  }
+
   return false;
 }
+
+/**
+ * Verifies whether a user has permission to view or manage company platform accounts.
+ * - Admin: always true
+ * - Operator: true if they are an active member in at least one project for this company
+ */
+export function canUserAccessCompanyAccounts(
+  user: { userId: string; role: string },
+  companyId: string,
+  minRole?: ProjectRole
+): boolean {
+  if (user.role === 'admin') return true;
+
+  const companyProjects = db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.companyId, companyId))
+    .all();
+
+  if (!companyProjects || companyProjects.length === 0) {
+    return false;
+  }
+
+  return companyProjects.some((p) => checkUserProjectAccess(user, p.id, minRole));
+}
+
+/**
+ * Verifies whether a user has permission to access a specific platform account:
+ * - Admin: always true
+ * - Operator: checks if user has access to any project linked to this account OR
+ *             any project belonging to the account's parent company.
+ */
+export function canUserAccessPlatformAccount(
+  user: { userId: string; role: string },
+  accountId: string,
+  action: 'view' | 'edit' | 'verify' | 'delete' = 'view'
+): boolean {
+  if (user.role === 'admin') return true;
+
+  const account = db
+    .select()
+    .from(clientPlatformAccounts)
+    .where(eq(clientPlatformAccounts.id, accountId))
+    .get();
+
+  if (!account) return false;
+
+  // Find all projects linked directly to this account
+  const linkedProjects = db
+    .select({ projectId: projectPlatformAccountLinks.projectId })
+    .from(projectPlatformAccountLinks)
+    .where(eq(projectPlatformAccountLinks.accountId, accountId))
+    .all();
+
+  const linkedProjectIds = linkedProjects.map((lp) => lp.projectId);
+
+  // Also include all projects belonging to the company
+  const companyProjects = db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.companyId, account.companyId))
+    .all();
+
+  const allRelevantProjectIds = Array.from(
+    new Set([...linkedProjectIds, ...companyProjects.map((cp) => cp.id)])
+  );
+
+  if (allRelevantProjectIds.length === 0) {
+    return false;
+  }
+
+  const minRole: ProjectRole = action === 'delete' ? 'manager' : action === 'edit' || action === 'verify' ? 'editor' : 'viewer';
+
+  return allRelevantProjectIds.some((pId) => checkUserProjectAccess(user, pId, minRole));
+}
+

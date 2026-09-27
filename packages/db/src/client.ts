@@ -771,6 +771,45 @@ export function initDatabase() {
       updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS org_settings_brand_key_idx ON organization_settings(brand_key);
+
+    -- Registro Account e Deleghe Digitali
+    CREATE TABLE IF NOT EXISTS client_platform_accounts (
+      id TEXT PRIMARY KEY,
+      company_id TEXT NOT NULL REFERENCES companies(id),
+      platform_type TEXT NOT NULL,
+      account_name TEXT NOT NULL,
+      external_id TEXT,
+      external_url TEXT,
+      access_method TEXT NOT NULL DEFAULT 'agency_mcc_partner',
+      access_level TEXT NOT NULL DEFAULT 'standard_edit',
+      delegated_to_identifier TEXT,
+      status TEXT NOT NULL DEFAULT 'not_requested',
+      origin_client_request_id TEXT REFERENCES client_requests(id),
+      origin_client_request_item_id TEXT REFERENCES client_request_items(id),
+      evidence_document_id TEXT REFERENCES documents(id),
+      verification_method TEXT,
+      verification_notes TEXT,
+      verified_by_user_id TEXT REFERENCES users(id),
+      verified_at TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS client_plat_acc_company_idx ON client_platform_accounts(company_id);
+    CREATE INDEX IF NOT EXISTS client_plat_acc_type_idx ON client_platform_accounts(platform_type);
+    CREATE INDEX IF NOT EXISTS client_plat_acc_status_idx ON client_platform_accounts(status);
+
+    CREATE TABLE IF NOT EXISTS project_platform_account_links (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      account_id TEXT NOT NULL REFERENCES client_platform_accounts(id),
+      linked_by_user_id TEXT NOT NULL REFERENCES users(id),
+      linked_at TEXT NOT NULL,
+      notes TEXT
+    );
+    CREATE INDEX IF NOT EXISTS proj_plat_link_project_idx ON project_platform_account_links(project_id);
+    CREATE INDEX IF NOT EXISTS proj_plat_link_account_idx ON project_platform_account_links(account_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS proj_plat_link_uniq ON project_platform_account_links(project_id, account_id);
   `);
 
   // Migrazione retrocompatibile per colonne aggiuntive se le tabelle esistevano già

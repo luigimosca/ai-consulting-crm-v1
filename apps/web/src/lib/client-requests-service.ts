@@ -15,6 +15,7 @@ import {
 import { logActivity } from './activity-logger';
 import { checkUserProjectAccess, canUserAccessClientRequest } from './auth';
 import { isTaskBlocked } from './task-graph';
+import { syncAccountFromApprovedClientRequestItem } from './platform-accounts-service';
 
 export interface ClientRequestItemData {
   id: string;
@@ -907,6 +908,24 @@ export async function approveClientRequest(
     })
     .where(eq(clientRequestItems.requestId, requestId))
     .run();
+
+  // 2b. Se la richiesta riguarda accessi o include deleghe, sincronizza il registro account aziendale
+  // Nota: lo stato dell'account viene impostato su 'declared_by_client', MAI 'verified_active' in automatico!
+  const approvedItems = db
+    .select({ id: clientRequestItems.id, itemType: clientRequestItems.itemType })
+    .from(clientRequestItems)
+    .where(eq(clientRequestItems.requestId, requestId))
+    .all();
+
+  for (const item of approvedItems) {
+    if (req.category === 'accesses' || item.itemType === 'access_confirmation') {
+      try {
+        await syncAccountFromApprovedClientRequestItem(requestId, item.id, performedByUserId);
+      } catch (syncErr) {
+        console.error('Account sync error on request item approval:', syncErr);
+      }
+    }
+  }
 
   // 3. Sblocca i task collegati se non ci sono ALTRI blocchi attivi
   const linkedTasks = db

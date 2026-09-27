@@ -44,6 +44,7 @@ import {
 import { SUGGESTED_ROLES_TAXONOMY } from '@ai-crm/ai';
 import { ClientRequestsTab } from '@/components/crm/ClientRequestsTab';
 import { ProjectTeamTab } from '@/components/crm/ProjectTeamTab';
+import { ProjectAccessesTab } from '@/components/crm/ProjectAccessesTab';
 
 export default function ProjectDetailPage({
   params,
@@ -56,7 +57,7 @@ export default function ProjectDetailPage({
   const [projectData, setProjectData] = useState<any>(null);
   const [usersList, setUsersList] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'gantt' | 'documents' | 'materials' | 'team'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'gantt' | 'documents' | 'materials' | 'accesses' | 'team'>('overview');
 
   // Process Templates State
   const [appliedTemplates, setAppliedTemplates] = useState<any[]>([]);
@@ -975,6 +976,19 @@ export default function ProjectDetailPage({
 
         <button
           type="button"
+          onClick={() => setActiveTab('accesses')}
+          className={`px-4 py-2.5 rounded-t-lg font-semibold transition-colors flex items-center gap-2 ${
+            activeTab === 'accesses'
+              ? 'bg-slate-900 text-white border-t-2 border-cyan-500'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900/40'
+          }`}
+        >
+          <ShieldCheck className="h-4 w-4 text-cyan-400" />
+          <span>Account & Deleghe</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab('team')}
           className={`px-4 py-2.5 rounded-t-lg font-semibold transition-colors flex items-center gap-2 ${
             activeTab === 'team'
@@ -1416,7 +1430,17 @@ export default function ProjectDetailPage({
         />
       )}
 
-      {/* TAB 6: TEAM & PERMESSI */}
+      {/* TAB 6: ACCOUNT & DELEGHE DIGITALI (VAULT) */}
+      {activeTab === 'accesses' && (
+        <ProjectAccessesTab
+          projectId={id}
+          companyId={project.companyId || ''}
+          isManagerOrEditor={true}
+          currentUserRole={projectData?.currentUser?.role}
+        />
+      )}
+
+      {/* TAB 7: TEAM & PERMESSI */}
       {activeTab === 'team' && (
         <ProjectTeamTab projectId={id} onMembersUpdated={fetchProject} />
       )}
