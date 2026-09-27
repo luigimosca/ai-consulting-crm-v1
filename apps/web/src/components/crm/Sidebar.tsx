@@ -21,7 +21,8 @@ import {
   CheckSquare,
   Files,
   Workflow,
-  Settings
+  Settings,
+  Megaphone
 } from 'lucide-react';
 import { cn, APP_VERSION } from '@/lib/utils';
 
@@ -84,6 +85,12 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
       href: '/crm/tasks',
       icon: CheckSquare,
       active: pathname.startsWith('/crm/tasks'),
+    },
+    {
+      label: 'Marketing Hub',
+      href: '/crm/marketing',
+      icon: Megaphone,
+      active: pathname.startsWith('/crm/marketing'),
     },
     {
       label: 'Documenti',
