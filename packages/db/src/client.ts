@@ -79,7 +79,7 @@ if (dbPath === '/data/sqlite.db' && !fs.existsSync(dbPath)) {
   }
 }
 
-const sqlite = new Database(dbPath);
+export const sqlite = new Database(dbPath);
 // Enable WAL mode for better concurrency
 sqlite.pragma('journal_mode = WAL');
 
@@ -876,6 +876,79 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS mktg_recipients_lead_idx ON campaign_recipients(lead_id);
     CREATE INDEX IF NOT EXISTS mktg_recipients_company_idx ON campaign_recipients(company_id);
     CREATE INDEX IF NOT EXISTS mktg_recipients_status_idx ON campaign_recipients(status);
+
+    CREATE TABLE IF NOT EXISTS client_campaigns (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      order_id TEXT REFERENCES orders(id),
+      platform_account_id TEXT REFERENCES client_platform_accounts(id),
+      name TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      objective TEXT NOT NULL,
+      monthly_budget_cents INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'EUR',
+      start_date TEXT,
+      end_date TEXT,
+      status TEXT NOT NULL DEFAULT 'draft',
+      target_geography TEXT,
+      target_languages TEXT,
+      target_keywords_json TEXT,
+      assigned_operator_id TEXT REFERENCES users(id),
+      created_by TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS client_camp_project_idx ON client_campaigns(project_id);
+    CREATE INDEX IF NOT EXISTS client_camp_channel_idx ON client_campaigns(channel);
+    CREATE INDEX IF NOT EXISTS client_camp_status_idx ON client_campaigns(status);
+    CREATE INDEX IF NOT EXISTS client_camp_order_idx ON client_campaigns(order_id);
+    CREATE INDEX IF NOT EXISTS client_camp_platform_acc_idx ON client_campaigns(platform_account_id);
+
+    CREATE TABLE IF NOT EXISTS campaign_creatives (
+      id TEXT PRIMARY KEY,
+      campaign_id TEXT NOT NULL REFERENCES client_campaigns(id),
+      variant_name TEXT NOT NULL,
+      format TEXT NOT NULL DEFAULT 'search_responsive_ad',
+      headlines_json TEXT NOT NULL DEFAULT '[]',
+      descriptions_json TEXT NOT NULL DEFAULT '[]',
+      primary_body_copy TEXT,
+      call_to_action TEXT DEFAULT 'Richiedi Disponibilità',
+      destination_url TEXT NOT NULL,
+      tracked_url TEXT,
+      media_document_id TEXT REFERENCES documents(id),
+      approval_status TEXT NOT NULL DEFAULT 'draft',
+      feedback_notes TEXT,
+      approved_by_user_id TEXT REFERENCES users(id),
+      approved_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS camp_creat_campaign_idx ON campaign_creatives(campaign_id);
+    CREATE INDEX IF NOT EXISTS camp_creat_approval_idx ON campaign_creatives(approval_status);
+
+    CREATE TABLE IF NOT EXISTS campaign_kpi_reports (
+      id TEXT PRIMARY KEY,
+      campaign_id TEXT NOT NULL REFERENCES client_campaigns(id),
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      period_month TEXT NOT NULL,
+      spend_cents INTEGER NOT NULL DEFAULT 0,
+      impressions INTEGER NOT NULL DEFAULT 0,
+      clicks INTEGER NOT NULL DEFAULT 0,
+      conversions_count INTEGER NOT NULL DEFAULT 0,
+      conversion_value_cents INTEGER DEFAULT 0,
+      cpc_average_euro REAL,
+      ctr_percentage REAL,
+      cpa_euro REAL,
+      roas_ratio REAL,
+      source_type TEXT NOT NULL DEFAULT 'manual_entry',
+      executive_summary TEXT,
+      optimizations_planned TEXT,
+      recorded_by_user_id TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS camp_kpi_camp_period_idx ON campaign_kpi_reports(campaign_id, period_month);
+    CREATE INDEX IF NOT EXISTS camp_kpi_project_idx ON campaign_kpi_reports(project_id);
   `);
 
   // Non-destructive unique index bootstrap: detect conflicts independently without deleting any data or notes

@@ -1208,6 +1208,158 @@ export const campaignRecipients = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// Client Marketing & Ads Hub (Fase 2: Campagne Sponsorizzate Clienti)
+// ---------------------------------------------------------------------------
+
+export const clientCampaigns = sqliteTable(
+  'client_campaigns',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id),
+    orderId: text('order_id').references(() => orders.id),
+    platformAccountId: text('platform_account_id').references(() => clientPlatformAccounts.id),
+    name: text('name').notNull(),
+    channel: text('channel', {
+      enum: [
+        'google_search',
+        'google_performance_max',
+        'google_display_remarketing',
+        'meta_ads_lead_generation',
+        'meta_ads_conversions',
+        'meta_ads_brand_awareness',
+        'local_seo_google_maps',
+        'email_marketing_retention',
+        'other_channel',
+      ],
+    }).notNull(),
+    objective: text('objective').notNull(),
+    monthlyBudgetCents: integer('monthly_budget_cents').notNull().default(0),
+    currency: text('currency').notNull().default('EUR'),
+    startDate: text('start_date'),
+    endDate: text('end_date'),
+    status: text('status', {
+      enum: [
+        'draft',
+        'in_planning',
+        'pending_client_approval',
+        'active',
+        'paused',
+        'completed',
+        'cancelled',
+      ],
+    })
+      .notNull()
+      .default('draft'),
+    targetGeography: text('target_geography'),
+    targetLanguages: text('target_languages'),
+    targetKeywordsJson: text('target_keywords_json'),
+    assignedOperatorId: text('assigned_operator_id').references(() => users.id),
+    createdBy: text('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    projectIdx: index('client_camp_project_idx').on(table.projectId),
+    channelIdx: index('client_camp_channel_idx').on(table.channel),
+    statusIdx: index('client_camp_status_idx').on(table.status),
+    orderIdx: index('client_camp_order_idx').on(table.orderId),
+    platformAccountIdx: index('client_camp_platform_acc_idx').on(table.platformAccountId),
+  })
+);
+
+export const campaignCreatives = sqliteTable(
+  'campaign_creatives',
+  {
+    id: text('id').primaryKey(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => clientCampaigns.id),
+    variantName: text('variant_name').notNull(),
+    format: text('format', {
+      enum: [
+        'search_responsive_ad',
+        'meta_single_image',
+        'meta_carousel',
+        'meta_video_reel',
+        'display_responsive_banner',
+      ],
+    })
+      .notNull()
+      .default('search_responsive_ad'),
+    headlinesJson: text('headlines_json').notNull().default('[]'),
+    descriptionsJson: text('descriptions_json').notNull().default('[]'),
+    primaryBodyCopy: text('primary_body_copy'),
+    callToAction: text('call_to_action').default('Richiedi Disponibilità'),
+    destinationUrl: text('destination_url').notNull(),
+    trackedUrl: text('tracked_url'),
+    mediaDocumentId: text('media_document_id').references(() => documents.id),
+    approvalStatus: text('approval_status', {
+      enum: [
+        'draft',
+        'internal_review',
+        'client_approval_requested',
+        'approved',
+        'changes_requested',
+      ],
+    })
+      .notNull()
+      .default('draft'),
+    feedbackNotes: text('feedback_notes'),
+    approvedByUserId: text('approved_by_user_id').references(() => users.id),
+    approvedAt: text('approved_at'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    campaignIdx: index('camp_creat_campaign_idx').on(table.campaignId),
+    approvalIdx: index('camp_creat_approval_idx').on(table.approvalStatus),
+  })
+);
+
+export const campaignKpiReports = sqliteTable(
+  'campaign_kpi_reports',
+  {
+    id: text('id').primaryKey(),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => clientCampaigns.id),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id),
+    periodMonth: text('period_month').notNull(),
+    spendCents: integer('spend_cents').notNull().default(0),
+    impressions: integer('impressions').notNull().default(0),
+    clicks: integer('clicks').notNull().default(0),
+    conversionsCount: integer('conversions_count').notNull().default(0),
+    conversionValueCents: integer('conversion_value_cents').default(0),
+    cpcAverageEuro: real('cpc_average_euro'),
+    ctrPercentage: real('ctr_percentage'),
+    cpaEuro: real('cpa_euro'),
+    roasRatio: real('roas_ratio'),
+    sourceType: text('source_type', {
+      enum: ['manual_entry', 'csv_import', 'readonly_api_sync'],
+    })
+      .notNull()
+      .default('manual_entry'),
+    executiveSummary: text('executive_summary'),
+    optimizationsPlanned: text('optimizations_planned'),
+    recordedByUserId: text('recorded_by_user_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    campaignPeriodIdx: index('camp_kpi_camp_period_idx').on(table.campaignId, table.periodMonth),
+    projectIdx: index('camp_kpi_project_idx').on(table.projectId),
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Type Exports
 // ---------------------------------------------------------------------------
 
@@ -1333,6 +1485,16 @@ export type NewMarketingCampaign = typeof marketingCampaigns.$inferInsert;
 
 export type CampaignRecipient = typeof campaignRecipients.$inferSelect;
 export type NewCampaignRecipient = typeof campaignRecipients.$inferInsert;
+
+export type ClientCampaign = typeof clientCampaigns.$inferSelect;
+export type NewClientCampaign = typeof clientCampaigns.$inferInsert;
+
+export type CampaignCreative = typeof campaignCreatives.$inferSelect;
+export type NewCampaignCreative = typeof campaignCreatives.$inferInsert;
+
+export type CampaignKpiReport = typeof campaignKpiReports.$inferSelect;
+export type NewCampaignKpiReport = typeof campaignKpiReports.$inferInsert;
+
 
 
 
