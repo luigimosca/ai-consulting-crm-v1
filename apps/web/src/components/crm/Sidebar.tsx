@@ -22,7 +22,8 @@ import {
   Files,
   Workflow,
   Settings,
-  Megaphone
+  Megaphone,
+  Calendar
 } from 'lucide-react';
 import { cn, APP_VERSION } from '@/lib/utils';
 
@@ -52,6 +53,12 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
       href: '/crm/leads',
       icon: Users,
       active: pathname.startsWith('/crm/leads'),
+    },
+    {
+      label: 'Calendario & Chiamate',
+      href: '/crm/calendar',
+      icon: Calendar,
+      active: pathname.startsWith('/crm/calendar'),
     },
     {
       label: 'Lead Gen Territoriale',

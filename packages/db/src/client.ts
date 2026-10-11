@@ -949,6 +949,77 @@ export function initDatabase() {
     );
     CREATE INDEX IF NOT EXISTS camp_kpi_camp_period_idx ON campaign_kpi_reports(campaign_id, period_month);
     CREATE INDEX IF NOT EXISTS camp_kpi_project_idx ON campaign_kpi_reports(project_id);
+
+    -- =========================================================================
+    -- SALES ACTIVITIES & CALENDAR HUB (Chiamate, Appuntamenti e Richiamate)
+    -- =========================================================================
+
+    CREATE TABLE IF NOT EXISTS crm_calls (
+      id TEXT PRIMARY KEY,
+      lead_id TEXT REFERENCES leads(id),
+      company_id TEXT REFERENCES companies(id),
+      caller_user_id TEXT NOT NULL REFERENCES users(id),
+      direction TEXT NOT NULL DEFAULT 'outbound',
+      phone_number TEXT,
+      call_outcome TEXT NOT NULL,
+      duration_seconds INTEGER NOT NULL DEFAULT 0,
+      notes TEXT,
+      called_at TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS crm_calls_lead_idx ON crm_calls(lead_id);
+    CREATE INDEX IF NOT EXISTS crm_calls_company_idx ON crm_calls(company_id);
+    CREATE INDEX IF NOT EXISTS crm_calls_caller_idx ON crm_calls(caller_user_id);
+    CREATE INDEX IF NOT EXISTS crm_calls_called_at_idx ON crm_calls(called_at);
+    CREATE INDEX IF NOT EXISTS crm_calls_outcome_idx ON crm_calls(call_outcome);
+
+    CREATE TABLE IF NOT EXISTS crm_appointments (
+      id TEXT PRIMARY KEY,
+      lead_id TEXT REFERENCES leads(id),
+      company_id TEXT REFERENCES companies(id),
+      order_id TEXT REFERENCES orders(id),
+      project_id TEXT REFERENCES projects(id),
+      title TEXT NOT NULL,
+      description TEXT,
+      appointment_type TEXT NOT NULL DEFAULT 'discovery_call',
+      status TEXT NOT NULL DEFAULT 'scheduled',
+      scheduled_start_time TEXT NOT NULL,
+      scheduled_end_time TEXT NOT NULL,
+      location_type TEXT NOT NULL DEFAULT 'video_call',
+      meeting_url TEXT,
+      meeting_address TEXT,
+      organizer_user_id TEXT NOT NULL REFERENCES users(id),
+      attendees_json TEXT NOT NULL DEFAULT '[]',
+      outcome_notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS crm_appts_lead_idx ON crm_appointments(lead_id);
+    CREATE INDEX IF NOT EXISTS crm_appts_company_idx ON crm_appointments(company_id);
+    CREATE INDEX IF NOT EXISTS crm_appts_organizer_idx ON crm_appointments(organizer_user_id);
+    CREATE INDEX IF NOT EXISTS crm_appts_start_time_idx ON crm_appointments(scheduled_start_time);
+    CREATE INDEX IF NOT EXISTS crm_appts_status_idx ON crm_appointments(status);
+
+    CREATE TABLE IF NOT EXISTS crm_callbacks (
+      id TEXT PRIMARY KEY,
+      lead_id TEXT REFERENCES leads(id),
+      company_id TEXT REFERENCES companies(id),
+      call_id TEXT REFERENCES crm_calls(id),
+      assigned_user_id TEXT NOT NULL REFERENCES users(id),
+      scheduled_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      priority TEXT NOT NULL DEFAULT 'medium',
+      reason TEXT NOT NULL,
+      completed_at TEXT,
+      completed_notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS crm_callbacks_lead_idx ON crm_callbacks(lead_id);
+    CREATE INDEX IF NOT EXISTS crm_callbacks_company_idx ON crm_callbacks(company_id);
+    CREATE INDEX IF NOT EXISTS crm_callbacks_user_idx ON crm_callbacks(assigned_user_id);
+    CREATE INDEX IF NOT EXISTS crm_callbacks_sched_idx ON crm_callbacks(scheduled_at);
+    CREATE INDEX IF NOT EXISTS crm_callbacks_status_idx ON crm_callbacks(status);
   `);
 
   // Non-destructive unique index bootstrap: detect conflicts independently without deleting any data or notes

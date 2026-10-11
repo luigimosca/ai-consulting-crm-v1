@@ -8,6 +8,7 @@ import { EnrichmentView, type EnrichmentDataDisplay } from '@/components/crm/Enr
 import { ConsultingAuditReport } from '@/components/crm/ConsultingAuditReport';
 import { DecisionMakersView, type DecisionMakerItem } from '@/components/crm/DecisionMakersView';
 import { MarketingCampaignsTab } from '@/components/crm/MarketingCampaignsTab';
+import { LeadActivitiesTab } from '@/components/crm/LeadActivitiesTab';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -20,6 +21,7 @@ import {
   Globe,
   MapPin,
   Phone,
+  PhoneCall,
   Mail,
   Sparkles,
   Calendar,
@@ -68,7 +70,7 @@ export default function LeadDetailPage({
   const [outreachChannel, setOutreachChannel] = useState<'email' | 'whatsapp' | 'call'>('email');
 
   // Navigation tab
-  const [activeTab, setActiveTab] = useState<'overview' | 'audit' | 'reputation' | 'decision-makers' | 'quotes' | 'marketing'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'activities' | 'audit' | 'reputation' | 'decision-makers' | 'quotes' | 'marketing'>('overview');
   const [selectedDecisionMaker, setSelectedDecisionMaker] = useState<DecisionMakerItem | null>(null);
   const [quotesList, setQuotesList] = useState<any[]>([]);
   const [isCreatingQuoteModalOpen, setIsCreatingQuoteModalOpen] = useState(false);
@@ -996,6 +998,19 @@ export default function LeadDetailPage({
 
         <button
           type="button"
+          onClick={() => setActiveTab('activities')}
+          className={`px-4 py-2.5 rounded-t-lg font-semibold transition-colors flex items-center gap-2 ${
+            activeTab === 'activities'
+              ? 'bg-slate-900 text-white border-t-2 border-emerald-500'
+              : 'text-slate-400 hover:text-white hover:bg-slate-900/40'
+          }`}
+        >
+          <PhoneCall className="h-4 w-4 text-emerald-400" />
+          <span>Attività & Chiamate</span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab('audit')}
           className={`px-4 py-2.5 rounded-t-lg font-semibold transition-colors flex items-center gap-2 ${
             activeTab === 'audit'
@@ -1069,6 +1084,15 @@ export default function LeadDetailPage({
           <span>Marketing & Campagne</span>
         </button>
       </div>
+
+      {/* TAB: ATTIVITÀ, CHIAMATE & APPUNTAMENTI */}
+      {activeTab === 'activities' && (
+        <LeadActivitiesTab
+          leadId={id}
+          targetName={lead.companyName}
+          phoneNumber={lead.phone}
+        />
+      )}
 
       {/* TAB 1: PANORAMICA & OUTREACH */}
       {activeTab === 'overview' && (

@@ -36,6 +36,8 @@ import {
 
 import { ProjectAccessesTab } from '@/components/crm/ProjectAccessesTab';
 import { MarketingCampaignsTab } from '@/components/crm/MarketingCampaignsTab';
+import { LeadActivitiesTab } from '@/components/crm/LeadActivitiesTab';
+import { PhoneCall } from 'lucide-react';
 
 const SECTOR_OPTIONS = [
   { value: 'horeca_ristoranti', label: 'Ristoranti & Horeca' },
@@ -56,7 +58,7 @@ export default function CompanyDetailPage({
 
   const [companyData, setCompanyData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'commesse' | 'projects' | 'quotes' | 'accounts' | 'marketing'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'activities' | 'commesse' | 'projects' | 'quotes' | 'accounts' | 'marketing'>('overview');
 
   // Edit Modal State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -259,6 +261,18 @@ export default function CompanyDetailPage({
         </button>
 
         <button
+          onClick={() => setActiveTab('activities')}
+          className={`px-3.5 py-1.5 rounded-lg font-medium transition-colors flex items-center gap-1.5 shrink-0 ${
+            activeTab === 'activities'
+              ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+          }`}
+        >
+          <PhoneCall className="h-3.5 w-3.5 text-emerald-400" />
+          <span>Attività & Chiamate</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('commesse')}
           className={`px-3.5 py-1.5 rounded-lg font-medium transition-colors flex items-center gap-1.5 shrink-0 ${
             activeTab === 'commesse'
@@ -318,6 +332,15 @@ export default function CompanyDetailPage({
           <span>Marketing & Campagne</span>
         </button>
       </div>
+
+      {/* TAB CONTENT: ATTIVITÀ & CHIAMATE */}
+      {activeTab === 'activities' && (
+        <LeadActivitiesTab
+          companyId={id}
+          targetName={company.name}
+          phoneNumber={company.phone}
+        />
+      )}
 
       {/* TAB CONTENT: OVERVIEW */}
       {activeTab === 'overview' && (

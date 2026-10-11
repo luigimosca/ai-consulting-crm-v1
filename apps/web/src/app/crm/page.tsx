@@ -19,14 +19,21 @@ import {
   ArrowRight,
   Building2,
   Phone,
-  Mail
+  Mail,
+  Video,
+  RotateCcw,
+  Clock,
+  AlertTriangle,
+  ExternalLink
 } from 'lucide-react';
+import { getTodayAgenda } from '@/lib/activities-service';
 
 export const dynamic = 'force-dynamic';
 
 export default async function CrmDashboardPage() {
   const allLeads = db.select().from(leads).orderBy(desc(leads.createdAt)).all();
   const allDemos = db.select().from(demoRequests).orderBy(desc(demoRequests.createdAt)).all();
+  const todayAgenda = await getTodayAgenda();
 
   // Metrics
   const totalLeads = allLeads.length;
@@ -52,6 +59,12 @@ export default async function CrmDashboardPage() {
         description="Panoramica su lead acquisiti, conversioni demo e opportunità per settore."
         action={
           <div className="flex items-center gap-2.5">
+            <Link href="/crm/calendar">
+              <Button variant="secondary" size="sm" className="gap-1.5">
+                <Calendar className="h-3.5 w-3.5 text-amber-400" />
+                <span>Calendario & Chiamate</span>
+              </Button>
+            </Link>
             <Link href="/crm/lead-gen">
               <Button variant="secondary" size="sm" className="gap-1.5">
                 <Search className="h-3.5 w-3.5 text-blue-400" />
@@ -130,6 +143,137 @@ export default async function CrmDashboardPage() {
           </p>
         </Card>
       </div>
+
+      {/* Today's Sales Agenda & Activities Widget */}
+      <Card className="bg-slate-900/90 border-slate-800 p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
+              <Calendar className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-white">La mia Giornata: Attività Commerciali di Oggi</h2>
+              <p className="text-xs text-slate-400">
+                Chiamate, video call con clienti e follow-up programmati.
+              </p>
+            </div>
+          </div>
+
+          <Link
+            href="/crm/calendar"
+            className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 font-medium"
+          >
+            <span>Apri Calendario Completo</span>
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+
+        {/* 4 Micro KPI Pill Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
+            <span className="text-[11px] text-slate-400 block font-medium">Appuntamenti Oggi</span>
+            <span className="text-xl font-bold text-white mt-0.5 block">{todayAgenda.counts.todayAppointmentsCount}</span>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
+            <span className="text-[11px] text-slate-400 block font-medium">Richiamate da Fare</span>
+            <span className="text-xl font-bold text-amber-400 mt-0.5 block">{todayAgenda.counts.todayCallbacksCount}</span>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
+            <span className="text-[11px] text-slate-400 block font-medium">Richiamate Scadute</span>
+            <span className={`text-xl font-bold mt-0.5 block ${todayAgenda.counts.overdueCallbacksCount > 0 ? 'text-rose-400' : 'text-slate-300'}`}>
+              {todayAgenda.counts.overdueCallbacksCount}
+            </span>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
+            <span className="text-[11px] text-slate-400 block font-medium">Chiamate Effettuate</span>
+            <span className="text-xl font-bold text-emerald-400 mt-0.5 block">{todayAgenda.counts.todayCallsCount}</span>
+          </div>
+        </div>
+
+        {/* Appointments & Urgent Callbacks Row */}
+        {(todayAgenda.appointmentsToday.length > 0 || todayAgenda.callbacksOverdue.length > 0 || todayAgenda.callbacksToday.length > 0) ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+            {/* Appointments */}
+            <div className="space-y-2">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
+                Appuntamenti di Oggi
+              </span>
+              {todayAgenda.appointmentsToday.length === 0 ? (
+                <div className="p-3 rounded-xl bg-slate-950/40 border border-slate-800/50 text-xs text-slate-500">
+                  Nessun appuntamento in programma per oggi.
+                </div>
+              ) : (
+                todayAgenda.appointmentsToday.map((appt) => (
+                  <div
+                    key={appt.id}
+                    className="p-3 rounded-xl bg-slate-950/70 border border-slate-800 flex items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <Video className="h-4 w-4 text-blue-400 flex-shrink-0" />
+                      <div className="truncate">
+                        <span className="font-semibold text-white block truncate">{appt.title}</span>
+                        <span className="text-[11px] text-slate-400 truncate block">
+                          {appt.leadCompanyName || appt.companyName || 'Incontro'} •{' '}
+                          {new Date(appt.scheduledStartTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    </div>
+                    {appt.meetingUrl && (
+                      <a
+                        href={appt.meetingUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-2.5 py-1 rounded-lg bg-blue-600/20 text-blue-300 hover:bg-blue-600/30 font-medium text-[11px] flex-shrink-0 flex items-center gap-1"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        <span>Link</span>
+                      </a>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Callbacks & Follow-ups */}
+            <div className="space-y-2">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
+                Richiamate & Priorità
+              </span>
+              {[...todayAgenda.callbacksOverdue, ...todayAgenda.callbacksToday].length === 0 ? (
+                <div className="p-3 rounded-xl bg-slate-950/40 border border-slate-800/50 text-xs text-slate-500">
+                  Nessuna richiamata in sospeso per oggi.
+                </div>
+              ) : (
+                [...todayAgenda.callbacksOverdue, ...todayAgenda.callbacksToday].slice(0, 3).map((cb) => (
+                  <div
+                    key={cb.id}
+                    className="p-3 rounded-xl bg-slate-950/70 border border-slate-800 flex items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <Clock className={`h-4 w-4 flex-shrink-0 ${cb.status === 'overdue' ? 'text-rose-400' : 'text-amber-400'}`} />
+                      <div className="truncate">
+                        <span className="font-semibold text-white block truncate">{cb.reason}</span>
+                        <span className="text-[11px] text-slate-400 truncate block">
+                          {cb.leadCompanyName || cb.companyName || 'Lead'} • {cb.status === 'overdue' ? 'Scaduta' : 'Oggi'}
+                        </span>
+                      </div>
+                    </div>
+                    <span
+                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase flex-shrink-0 ${
+                        cb.status === 'overdue'
+                          ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                          : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                      }`}
+                    >
+                      {cb.status}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        ) : null}
+      </Card>
 
       {/* 2 Column Layout: Sectors + Recent Hot Leads */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

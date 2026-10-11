@@ -1360,6 +1360,146 @@ export const campaignKpiReports = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// SALES ACTIVITIES & CALENDAR HUB: Chiamate, Appuntamenti e Richiamate
+// ---------------------------------------------------------------------------
+
+export const crmCalls = sqliteTable(
+  'crm_calls',
+  {
+    id: text('id').primaryKey(),
+    leadId: text('lead_id').references(() => leads.id),
+    companyId: text('company_id').references(() => companies.id),
+    callerUserId: text('caller_user_id')
+      .notNull()
+      .references(() => users.id),
+    direction: text('direction', {
+      enum: ['outbound', 'inbound'],
+    })
+      .notNull()
+      .default('outbound'),
+    phoneNumber: text('phone_number'),
+    callOutcome: text('call_outcome', {
+      enum: [
+        'answered_interested',
+        'answered_not_interested',
+        'no_answer',
+        'busy',
+        'voicemail',
+        'wrong_number',
+        'callback_requested',
+      ],
+    }).notNull(),
+    durationSeconds: integer('duration_seconds').notNull().default(0),
+    notes: text('notes'),
+    calledAt: text('called_at').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => ({
+    leadIdx: index('crm_calls_lead_idx').on(table.leadId),
+    companyIdx: index('crm_calls_company_idx').on(table.companyId),
+    callerIdx: index('crm_calls_caller_idx').on(table.callerUserId),
+    calledAtIdx: index('crm_calls_called_at_idx').on(table.calledAt),
+    outcomeIdx: index('crm_calls_outcome_idx').on(table.callOutcome),
+  })
+);
+
+export const crmAppointments = sqliteTable(
+  'crm_appointments',
+  {
+    id: text('id').primaryKey(),
+    leadId: text('lead_id').references(() => leads.id),
+    companyId: text('company_id').references(() => companies.id),
+    orderId: text('order_id').references(() => orders.id),
+    projectId: text('project_id').references(() => projects.id),
+    title: text('title').notNull(),
+    description: text('description'),
+    appointmentType: text('appointment_type', {
+      enum: [
+        'discovery_call',
+        'demo_presentation',
+        'quote_review',
+        'kickoff_meeting',
+        'in_person_meeting',
+        'other',
+      ],
+    })
+      .notNull()
+      .default('discovery_call'),
+    status: text('status', {
+      enum: [
+        'scheduled',
+        'confirmed',
+        'completed',
+        'cancelled',
+        'rescheduled',
+        'no_show',
+      ],
+    })
+      .notNull()
+      .default('scheduled'),
+    scheduledStartTime: text('scheduled_start_time').notNull(),
+    scheduledEndTime: text('scheduled_end_time').notNull(),
+    locationType: text('location_type', {
+      enum: ['video_call', 'client_office', 'our_office', 'phone_call', 'other'],
+    })
+      .notNull()
+      .default('video_call'),
+    meetingUrl: text('meeting_url'),
+    meetingAddress: text('meeting_address'),
+    organizerUserId: text('organizer_user_id')
+      .notNull()
+      .references(() => users.id),
+    attendeesJson: text('attendees_json').notNull().default('[]'),
+    outcomeNotes: text('outcome_notes'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    leadIdx: index('crm_appts_lead_idx').on(table.leadId),
+    companyIdx: index('crm_appts_company_idx').on(table.companyId),
+    organizerIdx: index('crm_appts_organizer_idx').on(table.organizerUserId),
+    startTimeIdx: index('crm_appts_start_time_idx').on(table.scheduledStartTime),
+    statusIdx: index('crm_appts_status_idx').on(table.status),
+  })
+);
+
+export const crmCallbacks = sqliteTable(
+  'crm_callbacks',
+  {
+    id: text('id').primaryKey(),
+    leadId: text('lead_id').references(() => leads.id),
+    companyId: text('company_id').references(() => companies.id),
+    callId: text('call_id').references(() => crmCalls.id),
+    assignedUserId: text('assigned_user_id')
+      .notNull()
+      .references(() => users.id),
+    scheduledAt: text('scheduled_at').notNull(),
+    status: text('status', {
+      enum: ['pending', 'completed', 'cancelled', 'overdue'],
+    })
+      .notNull()
+      .default('pending'),
+    priority: text('priority', {
+      enum: ['low', 'medium', 'high', 'urgent'],
+    })
+      .notNull()
+      .default('medium'),
+    reason: text('reason').notNull(),
+    completedAt: text('completed_at'),
+    completedNotes: text('completed_notes'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    leadIdx: index('crm_callbacks_lead_idx').on(table.leadId),
+    companyIdx: index('crm_callbacks_company_idx').on(table.companyId),
+    assignedUserIdx: index('crm_callbacks_user_idx').on(table.assignedUserId),
+    scheduledAtIdx: index('crm_callbacks_sched_idx').on(table.scheduledAt),
+    statusIdx: index('crm_callbacks_status_idx').on(table.status),
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Type Exports
 // ---------------------------------------------------------------------------
 
@@ -1494,6 +1634,16 @@ export type NewCampaignCreative = typeof campaignCreatives.$inferInsert;
 
 export type CampaignKpiReport = typeof campaignKpiReports.$inferSelect;
 export type NewCampaignKpiReport = typeof campaignKpiReports.$inferInsert;
+
+export type CrmCall = typeof crmCalls.$inferSelect;
+export type NewCrmCall = typeof crmCalls.$inferInsert;
+
+export type CrmAppointment = typeof crmAppointments.$inferSelect;
+export type NewCrmAppointment = typeof crmAppointments.$inferInsert;
+
+export type CrmCallback = typeof crmCallbacks.$inferSelect;
+export type NewCrmCallback = typeof crmCallbacks.$inferInsert;
+
 
 
 
