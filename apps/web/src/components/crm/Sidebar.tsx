@@ -23,7 +23,8 @@ import {
   Workflow,
   Settings,
   Megaphone,
-  Calendar
+  Calendar,
+  Share2
 } from 'lucide-react';
 import { cn, APP_VERSION } from '@/lib/utils';
 
@@ -98,6 +99,12 @@ export function Sidebar({ user }: { user?: { name: string; email: string; role: 
       href: '/crm/marketing',
       icon: Megaphone,
       active: pathname.startsWith('/crm/marketing'),
+    },
+    {
+      label: 'Local Growth & Social',
+      href: '/crm/local-growth',
+      icon: Share2,
+      active: pathname.startsWith('/crm/local-growth'),
     },
     {
       label: 'Documenti',

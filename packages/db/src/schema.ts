@@ -1535,6 +1535,129 @@ export const crmReminders = sqliteTable(
   })
 );
 
+export const localSocialPosts = sqliteTable(
+  'local_social_posts',
+  {
+    id: text('id').primaryKey(),
+    companyId: text('company_id').references(() => companies.id),
+    projectId: text('project_id').references(() => projects.id),
+    channel: text('channel', {
+      enum: ['instagram', 'facebook', 'linkedin', 'google_business', 'tiktok'],
+    })
+      .notNull()
+      .default('instagram'),
+    postType: text('post_type', {
+      enum: ['post', 'reel', 'story', 'carousel', 'update'],
+    })
+      .notNull()
+      .default('post'),
+    publishStatus: text('publish_status', {
+      enum: ['bozza', 'in_revisione', 'approvato', 'programmato', 'pubblicato', 'archiviato'],
+    })
+      .notNull()
+      .default('bozza'),
+    scheduledAt: text('scheduled_at'),
+    topic: text('topic'),
+    title: text('title').notNull(),
+    hook: text('hook'),
+    caption: text('caption').notNull(),
+    callToAction: text('call_to_action'),
+    hashtagsJson: text('hashtags_json').default('[]'),
+    visualPrompt: text('visual_prompt'),
+    mediaUrlsJson: text('media_urls_json').default('[]'),
+    createdById: text('created_by_id').references(() => users.id),
+    approvedById: text('approved_by_id').references(() => users.id),
+    approvedAt: text('approved_at'),
+    publishedAt: text('published_at'),
+    notes: text('notes'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    companyIdIdx: index('local_social_posts_company_idx').on(table.companyId),
+    publishStatusIdx: index('local_social_posts_status_idx').on(table.publishStatus),
+    scheduledAtIdx: index('local_social_posts_scheduled_idx').on(table.scheduledAt),
+    channelIdx: index('local_social_posts_channel_idx').on(table.channel),
+  })
+);
+
+export const localGbpReviews = sqliteTable(
+  'local_gbp_reviews',
+  {
+    id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .notNull()
+      .references(() => companies.id),
+    reviewerName: text('reviewer_name').notNull(),
+    reviewerPhotoUrl: text('reviewer_photo_url'),
+    rating: integer('rating').notNull(), // 1 - 5
+    comment: text('comment'),
+    reviewDate: text('review_date').notNull(),
+    sentiment: text('sentiment', {
+      enum: ['positivo', 'neutro', 'critico'],
+    })
+      .notNull()
+      .default('positivo'),
+    replyText: text('reply_text'),
+    suggestedReplyAi: text('suggested_reply_ai'),
+    replyStatus: text('reply_status', {
+      enum: ['da_rispondere', 'bozza_ai', 'risposta_pubblicata'],
+    })
+      .notNull()
+      .default('da_rispondere'),
+    repliedAt: text('replied_at'),
+    repliedById: text('replied_by_id').references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    companyIdIdx: index('local_gbp_reviews_company_idx').on(table.companyId),
+    replyStatusIdx: index('local_gbp_reviews_status_idx').on(table.replyStatus),
+    ratingIdx: index('local_gbp_reviews_rating_idx').on(table.rating),
+    reviewDateIdx: index('local_gbp_reviews_date_idx').on(table.reviewDate),
+  })
+);
+
+export const localGbpPosts = sqliteTable(
+  'local_gbp_posts',
+  {
+    id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .notNull()
+      .references(() => companies.id),
+    postType: text('post_type', {
+      enum: ['standard', 'offerta', 'evento'],
+    })
+      .notNull()
+      .default('standard'),
+    title: text('title').notNull(),
+    summary: text('summary').notNull(),
+    ctaType: text('cta_type', {
+      enum: ['PRENOTA', 'CHIAMA', 'SCOPRI', 'ACQUISTA', 'NESSUNA'],
+    })
+      .notNull()
+      .default('SCOPRI'),
+    ctaUrl: text('cta_url'),
+    couponCode: text('coupon_code'),
+    termsConditions: text('terms_conditions'),
+    startDate: text('start_date'),
+    endDate: text('end_date'),
+    status: text('status', {
+      enum: ['bozza', 'programmato', 'pubblicato', 'scaduto'],
+    })
+      .notNull()
+      .default('bozza'),
+    publishedAt: text('published_at'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    companyIdIdx: index('local_gbp_posts_company_idx').on(table.companyId),
+    statusIdx: index('local_gbp_posts_status_idx').on(table.status),
+    startDateIdx: index('local_gbp_posts_start_date_idx').on(table.startDate),
+  })
+);
+
 // ---------------------------------------------------------------------------
 // Type Exports
 // ---------------------------------------------------------------------------
@@ -1683,7 +1806,11 @@ export type NewCrmCallback = typeof crmCallbacks.$inferInsert;
 export type CrmReminder = typeof crmReminders.$inferSelect;
 export type NewCrmReminder = typeof crmReminders.$inferInsert;
 
+export type LocalSocialPost = typeof localSocialPosts.$inferSelect;
+export type NewLocalSocialPost = typeof localSocialPosts.$inferInsert;
 
+export type LocalGbpReview = typeof localGbpReviews.$inferSelect;
+export type NewLocalGbpReview = typeof localGbpReviews.$inferInsert;
 
-
-
+export type LocalGbpPost = typeof localGbpPosts.$inferSelect;
+export type NewLocalGbpPost = typeof localGbpPosts.$inferInsert;

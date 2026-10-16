@@ -1040,6 +1040,79 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS crm_reminders_user_idx ON crm_reminders(user_id);
     CREATE INDEX IF NOT EXISTS crm_reminders_due_idx ON crm_reminders(due_date_time);
     CREATE INDEX IF NOT EXISTS crm_reminders_completed_idx ON crm_reminders(is_completed);
+
+    -- Local Growth Hub: Social Planner (Fase 1) & Google Business Profile (Fase 2)
+    CREATE TABLE IF NOT EXISTS local_social_posts (
+      id TEXT PRIMARY KEY,
+      company_id TEXT REFERENCES companies(id),
+      project_id TEXT REFERENCES projects(id),
+      channel TEXT NOT NULL DEFAULT 'instagram',
+      post_type TEXT NOT NULL DEFAULT 'post',
+      publish_status TEXT NOT NULL DEFAULT 'bozza',
+      scheduled_at TEXT,
+      topic TEXT,
+      title TEXT NOT NULL,
+      hook TEXT,
+      caption TEXT NOT NULL,
+      call_to_action TEXT,
+      hashtags_json TEXT DEFAULT '[]',
+      visual_prompt TEXT,
+      media_urls_json TEXT DEFAULT '[]',
+      created_by_id TEXT REFERENCES users(id),
+      approved_by_id TEXT REFERENCES users(id),
+      approved_at TEXT,
+      published_at TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS local_social_posts_company_idx ON local_social_posts(company_id);
+    CREATE INDEX IF NOT EXISTS local_social_posts_status_idx ON local_social_posts(publish_status);
+    CREATE INDEX IF NOT EXISTS local_social_posts_scheduled_idx ON local_social_posts(scheduled_at);
+    CREATE INDEX IF NOT EXISTS local_social_posts_channel_idx ON local_social_posts(channel);
+
+    CREATE TABLE IF NOT EXISTS local_gbp_reviews (
+      id TEXT PRIMARY KEY,
+      company_id TEXT NOT NULL REFERENCES companies(id),
+      reviewer_name TEXT NOT NULL,
+      reviewer_photo_url TEXT,
+      rating INTEGER NOT NULL,
+      comment TEXT,
+      review_date TEXT NOT NULL,
+      sentiment TEXT NOT NULL DEFAULT 'positivo',
+      reply_text TEXT,
+      suggested_reply_ai TEXT,
+      reply_status TEXT NOT NULL DEFAULT 'da_rispondere',
+      replied_at TEXT,
+      replied_by_id TEXT REFERENCES users(id),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS local_gbp_reviews_company_idx ON local_gbp_reviews(company_id);
+    CREATE INDEX IF NOT EXISTS local_gbp_reviews_status_idx ON local_gbp_reviews(reply_status);
+    CREATE INDEX IF NOT EXISTS local_gbp_reviews_rating_idx ON local_gbp_reviews(rating);
+    CREATE INDEX IF NOT EXISTS local_gbp_reviews_date_idx ON local_gbp_reviews(review_date);
+
+    CREATE TABLE IF NOT EXISTS local_gbp_posts (
+      id TEXT PRIMARY KEY,
+      company_id TEXT NOT NULL REFERENCES companies(id),
+      post_type TEXT NOT NULL DEFAULT 'standard',
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      cta_type TEXT NOT NULL DEFAULT 'SCOPRI',
+      cta_url TEXT,
+      coupon_code TEXT,
+      terms_conditions TEXT,
+      start_date TEXT,
+      end_date TEXT,
+      status TEXT NOT NULL DEFAULT 'bozza',
+      published_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS local_gbp_posts_company_idx ON local_gbp_posts(company_id);
+    CREATE INDEX IF NOT EXISTS local_gbp_posts_status_idx ON local_gbp_posts(status);
+    CREATE INDEX IF NOT EXISTS local_gbp_posts_start_date_idx ON local_gbp_posts(start_date);
   `);
 
   // Non-destructive unique index bootstrap: detect conflicts independently without deleting any data or notes
