@@ -1020,6 +1020,26 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS crm_callbacks_user_idx ON crm_callbacks(assigned_user_id);
     CREATE INDEX IF NOT EXISTS crm_callbacks_sched_idx ON crm_callbacks(scheduled_at);
     CREATE INDEX IF NOT EXISTS crm_callbacks_status_idx ON crm_callbacks(status);
+
+    CREATE TABLE IF NOT EXISTS crm_reminders (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      title TEXT NOT NULL,
+      description TEXT,
+      due_date_time TEXT,
+      is_completed INTEGER NOT NULL DEFAULT 0,
+      completed_at TEXT,
+      priority TEXT NOT NULL DEFAULT 'medium',
+      category TEXT NOT NULL DEFAULT 'general',
+      lead_id TEXT REFERENCES leads(id),
+      company_id TEXT REFERENCES companies(id),
+      color TEXT DEFAULT 'slate',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS crm_reminders_user_idx ON crm_reminders(user_id);
+    CREATE INDEX IF NOT EXISTS crm_reminders_due_idx ON crm_reminders(due_date_time);
+    CREATE INDEX IF NOT EXISTS crm_reminders_completed_idx ON crm_reminders(is_completed);
   `);
 
   // Non-destructive unique index bootstrap: detect conflicts independently without deleting any data or notes
@@ -1123,6 +1143,8 @@ export function initDatabase() {
     'CREATE INDEX IF NOT EXISTS companies_vat_id_idx ON companies(vat_id)',
     'CREATE INDEX IF NOT EXISTS companies_fiscal_code_idx ON companies(fiscal_code)',
     'CREATE INDEX IF NOT EXISTS companies_provider_place_id_idx ON companies(provider_place_id)',
+    'ALTER TABLE users ADD COLUMN calendar_sync_token TEXT',
+    'CREATE UNIQUE INDEX IF NOT EXISTS users_calendar_sync_token_idx ON users(calendar_sync_token) WHERE calendar_sync_token IS NOT NULL',
   ];
   for (const m of migrations) {
     try {

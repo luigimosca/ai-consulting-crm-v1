@@ -10,6 +10,7 @@ export const users = sqliteTable('users', {
   avatar: text('avatar'),
   invitedBy: text('invited_by'),
   activatedAt: text('activated_at'),
+  calendarSyncToken: text('calendar_sync_token').unique(),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at'),
 });
@@ -1499,6 +1500,41 @@ export const crmCallbacks = sqliteTable(
   })
 );
 
+export const crmReminders = sqliteTable(
+  'crm_reminders',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id),
+    title: text('title').notNull(),
+    description: text('description'),
+    dueDateTime: text('due_date_time'),
+    isCompleted: integer('is_completed', { mode: 'boolean' }).notNull().default(false),
+    completedAt: text('completed_at'),
+    priority: text('priority', {
+      enum: ['low', 'medium', 'high', 'urgent'],
+    })
+      .notNull()
+      .default('medium'),
+    category: text('category', {
+      enum: ['general', 'admin', 'call', 'finance', 'idea', 'followup'],
+    })
+      .notNull()
+      .default('general'),
+    leadId: text('lead_id').references(() => leads.id),
+    companyId: text('company_id').references(() => companies.id),
+    color: text('color').default('slate'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    userIdIdx: index('crm_reminders_user_idx').on(table.userId),
+    dueDateTimeIdx: index('crm_reminders_due_idx').on(table.dueDateTime),
+    isCompletedIdx: index('crm_reminders_completed_idx').on(table.isCompleted),
+  })
+);
+
 // ---------------------------------------------------------------------------
 // Type Exports
 // ---------------------------------------------------------------------------
@@ -1643,6 +1679,9 @@ export type NewCrmAppointment = typeof crmAppointments.$inferInsert;
 
 export type CrmCallback = typeof crmCallbacks.$inferSelect;
 export type NewCrmCallback = typeof crmCallbacks.$inferInsert;
+
+export type CrmReminder = typeof crmReminders.$inferSelect;
+export type NewCrmReminder = typeof crmReminders.$inferInsert;
 
 
 

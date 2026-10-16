@@ -21,7 +21,11 @@ import {
   X,
   FileText,
   AlertTriangle,
-  RotateCcw
+  RotateCcw,
+  Radio,
+  Copy,
+  RefreshCw,
+  Check
 } from 'lucide-react';
 
 interface CalendarEvent {
@@ -52,6 +56,14 @@ export default function CalendarPage() {
   const [isNewApptModalOpen, setIsNewApptModalOpen] = useState(false);
   const [isNewCallbackModalOpen, setIsNewCallbackModalOpen] = useState(false);
   const [isLogCallModalOpen, setIsLogCallModalOpen] = useState(false);
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [syncData, setSyncData] = useState<{
+    httpFeedUrl: string;
+    webcalFeedUrl: string;
+    token: string;
+  } | null>(null);
+  const [loadingSync, setLoadingSync] = useState(false);
+  const [copiedFeed, setCopiedFeed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
 
@@ -387,6 +399,60 @@ export default function CalendarPage() {
     }
   };
 
+  const handleOpenSyncModal = async () => {
+    setIsSyncModalOpen(true);
+    setLoadingSync(true);
+    try {
+      const res = await fetch('/api/activities/calendar/sync-token');
+      const data = await res.json();
+      if (data.success) {
+        setSyncData({
+          httpFeedUrl: data.httpFeedUrl,
+          webcalFeedUrl: data.webcalFeedUrl,
+          token: data.token,
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load sync token', err);
+    } finally {
+      setLoadingSync(false);
+    }
+  };
+
+  const handleRegenerateSyncToken = async () => {
+    if (!confirm('Sei sicuro di voler rigenerare il token? I calendari precedentemente collegati smetteranno di sincronizzarsi finché non aggiorni il link.')) {
+      return;
+    }
+    setLoadingSync(true);
+    try {
+      const res = await fetch('/api/activities/calendar/sync-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ regenerate: true }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSyncData({
+          httpFeedUrl: data.httpFeedUrl,
+          webcalFeedUrl: data.webcalFeedUrl,
+          token: data.token,
+        });
+        setActionSuccessMessage('Nuovo link feed generato con successo!');
+        setTimeout(() => setActionSuccessMessage(null), 4000);
+      }
+    } catch (err) {
+      console.error('Failed to regenerate sync token', err);
+    } finally {
+      setLoadingSync(false);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedFeed(true);
+    setTimeout(() => setCopiedFeed(false), 2500);
+  };
+
   // Month grid generator
   const monthDays = useMemo(() => {
     const year = currentDate.getFullYear();
@@ -453,6 +519,14 @@ export default function CalendarPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={handleOpenSyncModal}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-950/70 hover:bg-indigo-900/80 text-indigo-300 border border-indigo-700/50 text-sm font-medium transition-all shadow-sm"
+            title="Sincronizzazione in tempo reale con Google Calendar, Apple Calendar o Outlook"
+          >
+            <Radio className="h-4 w-4 text-indigo-400" />
+            <span>Sincronizza Google Calendar</span>
+          </button>
           <button
             onClick={() => setIsLogCallModalOpen(true)}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-sm font-medium transition-all"
@@ -1270,6 +1344,132 @@ export default function CalendarPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Sincronizza con Google Calendar Modal */}
+      {isSyncModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-xl rounded-2xl p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setIsSyncModalOpen(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-5">
+              <div className="p-3 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                <Radio className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Sincronizzazione Google Calendar & iCal</h3>
+                <p className="text-xs text-slate-400">
+                  Iscriviti al feed live con notifiche automatiche prima di ogni scadenza
+                </p>
+              </div>
+            </div>
+
+            {loadingSync ? (
+              <div className="py-12 flex flex-col items-center justify-center text-slate-400 gap-3">
+                <RefreshCw className="h-6 w-6 animate-spin text-indigo-400" />
+                <span className="text-sm">Caricamento credenziali feed in corso...</span>
+              </div>
+            ) : syncData ? (
+              <div className="space-y-5 text-sm">
+                <div className="p-4 rounded-xl bg-indigo-950/40 border border-indigo-800/50 space-y-2">
+                  <div className="flex items-center gap-2 text-indigo-300 font-semibold text-xs uppercase tracking-wider">
+                    <Radio className="h-4 w-4" /> Notifiche Push & Allarmi Inclusi
+                  </div>
+                  <p className="text-xs text-indigo-200/80 leading-relaxed">
+                    Questo feed include <strong>allarmi preimpostati (VALARM)</strong> 15 minuti e 1 ora prima di appuntamenti, video call, richiamate e scadenze attività. Google Calendar e Apple Calendar mostreranno notifiche native sul tuo smartphone e computer.
+                  </p>
+                </div>
+
+                {/* Feed URL box */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-300">
+                    URL di Sottoscrizione Calendario (iCal Feed)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={syncData.httpFeedUrl}
+                      className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs font-mono text-slate-300 select-all focus:outline-none focus:border-indigo-500"
+                    />
+                    <button
+                      onClick={() => copyToClipboard(syncData.httpFeedUrl)}
+                      className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs flex items-center gap-1.5 transition-all shadow-md shadow-indigo-600/30 flex-shrink-0"
+                    >
+                      {copiedFeed ? (
+                        <>
+                          <Check className="h-4 w-4 text-emerald-300" />
+                          <span>Copiato!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-4 w-4" />
+                          <span>Copia URL</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Direct 1-click webcal link */}
+                <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-950 border border-slate-800">
+                  <div className="text-xs">
+                    <span className="font-semibold text-slate-200 block">Hai Mac, iPhone o Outlook?</span>
+                    <span className="text-slate-400">Puoi iscriverti direttamente con 1 click tramite protocollo webcal.</span>
+                  </div>
+                  <a
+                    href={syncData.webcalFeedUrl}
+                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition-colors flex-shrink-0 ml-3"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    <span>Apri webcal://</span>
+                  </a>
+                </div>
+
+                {/* Step by step Google Calendar guide */}
+                <div className="space-y-2 pt-2 border-t border-slate-800">
+                  <h4 className="text-xs font-semibold text-slate-200 uppercase tracking-wider">
+                    Come aggiungerlo a Google Calendar in 30 secondi:
+                  </h4>
+                  <ol className="list-decimal list-inside space-y-1.5 text-xs text-slate-400 pl-1">
+                    <li>Apri <strong className="text-slate-300">Google Calendar</strong> sul computer.</li>
+                    <li>Sulla sinistra, accanto ad <em>"Altri calendari"</em>, clicca su <strong className="text-slate-300">+</strong> e seleziona <strong className="text-slate-300">"Da URL"</strong>.</li>
+                    <li>Incolla l'URL copiato sopra e clicca su <strong className="text-indigo-400">"Aggiungi calendario"</strong>.</li>
+                    <li>Fatto! Gli eventi e le scadenze del CRM si sincronizzeranno automaticamente.</li>
+                  </ol>
+                </div>
+
+                {/* Security and token regeneration */}
+                <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
+                  <span className="text-[11px] text-slate-500">
+                    Token privato e sicuro. Non condividere il link con terzi.
+                  </span>
+                  <button
+                    onClick={handleRegenerateSyncToken}
+                    className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1 font-medium transition-colors"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    <span>Rigenera Token</span>
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-6 pt-4 border-t border-slate-800 flex justify-end">
+              <button
+                onClick={() => setIsSyncModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition-colors"
+              >
+                Chiudi
+              </button>
+            </div>
           </div>
         </div>
       )}

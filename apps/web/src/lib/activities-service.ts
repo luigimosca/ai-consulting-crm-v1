@@ -3,14 +3,18 @@ import {
   crmCalls,
   crmAppointments,
   crmCallbacks,
+  crmReminders,
+  tasks,
+  projects,
   leads,
   companies,
   users,
   CrmCall,
   CrmAppointment,
   CrmCallback,
+  CrmReminder,
 } from '@ai-crm/db';
-import { eq, and, desc, asc, gte, lte, or, inArray } from 'drizzle-orm';
+import { eq, ne, and, desc, asc, gte, lte, or, inArray } from 'drizzle-orm';
 import { UserSessionPayload } from './auth';
 import { logActivity } from './activity-logger';
 import crypto from 'crypto';
@@ -84,7 +88,8 @@ export interface CreateAppointmentInput {
   appointmentType?: AppointmentType;
   status?: AppointmentStatus;
   scheduledStartTime: string;
-  scheduledEndTime: string;
+  scheduledEndTime?: string;
+  durationMinutes?: number;
   locationType?: LocationType;
   meetingUrl?: string | null;
   meetingAddress?: string | null;
@@ -122,6 +127,32 @@ export interface UpdateCallbackInput {
   priority?: CallbackPriority;
   reason?: string;
   completedNotes?: string | null;
+}
+
+export type ReminderPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type ReminderCategory = 'general' | 'admin' | 'call' | 'finance' | 'idea' | 'followup';
+
+export interface CreateReminderInput {
+  title: string;
+  description?: string | null;
+  dueDateTime?: string | null;
+  priority?: ReminderPriority;
+  category?: ReminderCategory;
+  leadId?: string | null;
+  companyId?: string | null;
+  color?: string | null;
+}
+
+export interface UpdateReminderInput {
+  title?: string;
+  description?: string | null;
+  dueDateTime?: string | null;
+  isCompleted?: boolean;
+  priority?: ReminderPriority;
+  category?: ReminderCategory;
+  leadId?: string | null;
+  companyId?: string | null;
+  color?: string | null;
 }
 
 // ============================================================================
@@ -281,6 +312,11 @@ export async function createAppointment(
   const appointmentId = `appt_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
   const now = new Date().toISOString();
 
+  const startTime = new Date(input.scheduledStartTime);
+  const scheduledEndTime =
+    input.scheduledEndTime ||
+    new Date(startTime.getTime() + (input.durationMinutes || 45) * 60000).toISOString();
+
   const newAppt: CrmAppointment = {
     id: appointmentId,
     leadId: input.leadId || null,
@@ -292,7 +328,7 @@ export async function createAppointment(
     appointmentType: input.appointmentType || 'discovery_call',
     status: input.status || 'scheduled',
     scheduledStartTime: input.scheduledStartTime,
-    scheduledEndTime: input.scheduledEndTime,
+    scheduledEndTime: scheduledEndTime,
     locationType: input.locationType || 'video_call',
     meetingUrl: input.meetingUrl || null,
     meetingAddress: input.meetingAddress || null,
@@ -824,16 +860,472 @@ export async function getTodayAgenda(userId?: string) {
     (c) => c.calledAt >= startOfDay && c.calledAt <= endOfDay
   );
 
+  // Reminders for user
+  const userReminders = userId ? await listReminders({ userId, isCompleted: false, limit: 10 }) : [];
+  const pendingRemindersCount = userReminders.length;
+
   return {
     appointmentsToday,
     callbacksToday,
     callbacksOverdue,
     todayCalls: filteredCallsToday,
+    reminders: userReminders,
+    pendingReminders: userReminders,
     counts: {
       todayAppointmentsCount: appointmentsToday.length,
       todayCallbacksCount: callbacksToday.length,
       overdueCallbacksCount: callbacksOverdue.length,
       todayCallsCount: filteredCallsToday.length,
+      pendingRemindersCount,
     },
   };
+}
+
+// ============================================================================
+// Quick Reminders & Standalone Tasks (Cose da ricordare non legate a progetti)
+// ============================================================================
+
+export async function createReminder(
+  input: CreateReminderInput,
+  user: UserSessionPayload
+): Promise<CrmReminder> {
+  const reminderId = `rem_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+  const now = new Date().toISOString();
+
+  const newRem: CrmReminder = {
+    id: reminderId,
+    userId: user.userId,
+    title: input.title,
+    description: input.description || null,
+    dueDateTime: input.dueDateTime || null,
+    isCompleted: false,
+    completedAt: null,
+    priority: input.priority || 'medium',
+    category: input.category || 'general',
+    leadId: input.leadId || null,
+    companyId: input.companyId || null,
+    color: input.color || 'slate',
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  db.insert(crmReminders).values(newRem).run();
+
+  await logActivity({
+    entityType: 'crm_reminder',
+    entityId: reminderId,
+    action: 'reminder_created',
+    performedBy: user.userId,
+    details: {
+      title: input.title,
+      dueDateTime: input.dueDateTime,
+      priority: input.priority,
+      category: input.category,
+    },
+  });
+
+  return newRem;
+}
+
+export async function updateReminder(
+  id: string,
+  input: UpdateReminderInput,
+  user: UserSessionPayload
+): Promise<CrmReminder | null> {
+  const existing = db
+    .select()
+    .from(crmReminders)
+    .where(eq(crmReminders.id, id))
+    .get();
+
+  if (!existing) return null;
+  // Solo il proprietario o admin può modificare
+  if (user.role !== 'admin' && existing.userId !== user.userId) {
+    throw new Error('FORBIDDEN');
+  }
+
+  const now = new Date().toISOString();
+  const updateData: Partial<CrmReminder> = {
+    updatedAt: now,
+  };
+
+  if (input.title !== undefined) updateData.title = input.title;
+  if (input.description !== undefined) updateData.description = input.description;
+  if (input.dueDateTime !== undefined) updateData.dueDateTime = input.dueDateTime;
+  if (input.priority !== undefined) updateData.priority = input.priority;
+  if (input.category !== undefined) updateData.category = input.category;
+  if (input.leadId !== undefined) updateData.leadId = input.leadId;
+  if (input.companyId !== undefined) updateData.companyId = input.companyId;
+  if (input.color !== undefined) updateData.color = input.color;
+
+  if (input.isCompleted !== undefined) {
+    updateData.isCompleted = input.isCompleted;
+    updateData.completedAt = input.isCompleted ? now : null;
+  }
+
+  db.update(crmReminders)
+    .set(updateData)
+    .where(eq(crmReminders.id, id))
+    .run();
+
+  await logActivity({
+    entityType: 'crm_reminder',
+    entityId: id,
+    action: 'reminder_updated',
+    performedBy: user.userId,
+    details: input,
+    before: existing,
+  });
+
+  return { ...existing, ...updateData };
+}
+
+export async function deleteReminder(
+  id: string,
+  user: UserSessionPayload
+): Promise<boolean> {
+  const existing = db
+    .select()
+    .from(crmReminders)
+    .where(eq(crmReminders.id, id))
+    .get();
+
+  if (!existing) return false;
+  if (user.role !== 'admin' && existing.userId !== user.userId) {
+    throw new Error('FORBIDDEN');
+  }
+
+  db.delete(crmReminders).where(eq(crmReminders.id, id)).run();
+
+  await logActivity({
+    entityType: 'crm_reminder',
+    entityId: id,
+    action: 'reminder_deleted',
+    performedBy: user.userId,
+    details: { title: existing.title },
+    before: existing,
+  });
+
+  return true;
+}
+
+export async function listReminders(params: {
+  userId?: string;
+  isCompleted?: boolean;
+  status?: 'pending' | 'completed' | 'all';
+  category?: string;
+  priority?: string;
+  limit?: number;
+}) {
+  const conditions = [];
+  if (params.userId) conditions.push(eq(crmReminders.userId, params.userId));
+  if (params.isCompleted !== undefined) {
+    conditions.push(eq(crmReminders.isCompleted, params.isCompleted));
+  } else if (params.status === 'pending') {
+    conditions.push(eq(crmReminders.isCompleted, false));
+  } else if (params.status === 'completed') {
+    conditions.push(eq(crmReminders.isCompleted, true));
+  }
+  if (params.category) conditions.push(eq(crmReminders.category, params.category as any));
+  if (params.priority) conditions.push(eq(crmReminders.priority, params.priority as any));
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const rawList = db
+    .select({
+      reminder: crmReminders,
+      userName: users.name,
+      userEmail: users.email,
+      leadCompanyName: leads.companyName,
+      companyName: companies.name,
+    })
+    .from(crmReminders)
+    .leftJoin(users, eq(crmReminders.userId, users.id))
+    .leftJoin(leads, eq(crmReminders.leadId, leads.id))
+    .leftJoin(companies, eq(crmReminders.companyId, companies.id))
+    .where(whereClause)
+    .orderBy(desc(crmReminders.createdAt))
+    .limit(params.limit || 100)
+    .all();
+
+  return rawList.map((r) => ({
+    ...r.reminder,
+    user: { name: r.userName, email: r.userEmail },
+    leadCompanyName: r.leadCompanyName,
+    companyName: r.companyName,
+  }));
+}
+
+// ============================================================================
+// Google Calendar Live iCal Feed Synchronization
+// ============================================================================
+
+export async function getOrCreateCalendarSyncToken(userId: string): Promise<string> {
+  const user = db
+    .select({ id: users.id, calendarSyncToken: users.calendarSyncToken })
+    .from(users)
+    .where(eq(users.id, userId))
+    .get();
+
+  if (!user) throw new Error('Utente non trovato');
+
+  if (user.calendarSyncToken) {
+    return user.calendarSyncToken;
+  }
+
+  const newToken = crypto.randomBytes(24).toString('hex');
+  db.update(users)
+    .set({ calendarSyncToken: newToken })
+    .where(eq(users.id, userId))
+    .run();
+
+  return newToken;
+}
+
+export async function regenerateCalendarSyncToken(userId: string): Promise<string> {
+  const newToken = crypto.randomBytes(24).toString('hex');
+  db.update(users)
+    .set({ calendarSyncToken: newToken })
+    .where(eq(users.id, userId))
+    .run();
+  return newToken;
+}
+
+export async function generateUserIcsCalendarFeed(token: string): Promise<string | null> {
+  // Trova utente dal token
+  const user = db
+    .select({ id: users.id, name: users.name, email: users.email })
+    .from(users)
+    .where(eq(users.calendarSyncToken, token))
+    .get();
+
+  if (!user) return null;
+
+  const formatIcsDate = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return null;
+      return d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    } catch {
+      return null;
+    }
+  };
+
+  const escapeIcs = (str: string) =>
+    (str || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+
+  const nowStamp = formatIcsDate(new Date().toISOString());
+  const vevents: string[] = [];
+
+  // 1. Appuntamenti dell'utente (o tutti se admin)
+  const appts = await listAppointments({
+    organizerUserId: user.id,
+    limit: 200,
+  });
+
+  for (const a of appts) {
+    const dtStart = formatIcsDate(a.scheduledStartTime);
+    const dtEnd = formatIcsDate(a.scheduledEndTime);
+    if (!dtStart || !dtEnd) continue;
+
+    const related = a.leadCompanyName || a.companyName || '';
+    const summary = related ? `${a.title} - ${related}` : a.title;
+    const descParts = [
+      a.description || '',
+      related ? `Cliente / Lead: ${related}` : '',
+      a.meetingUrl ? `Link Riunione: ${a.meetingUrl}` : '',
+      a.meetingAddress ? `Luogo: ${a.meetingAddress}` : '',
+      `Stato CRM: ${a.status}`,
+    ].filter(Boolean);
+
+    const location = a.meetingUrl || a.meetingAddress || (a.locationType === 'video_call' ? 'Videochiamata' : '');
+
+    vevents.push(
+      [
+        'BEGIN:VEVENT',
+        `UID:appt-${a.id}@aiconsulting.crm`,
+        `DTSTAMP:${nowStamp}`,
+        `DTSTART:${dtStart}`,
+        `DTEND:${dtEnd}`,
+        `SUMMARY:${escapeIcs(summary)}`,
+        `DESCRIPTION:${escapeIcs(descParts.join('\n'))}`,
+        location ? `LOCATION:${escapeIcs(location)}` : '',
+        `STATUS:${a.status === 'cancelled' ? 'CANCELLED' : 'CONFIRMED'}`,
+        'BEGIN:VALARM',
+        'TRIGGER:-PT15M',
+        'ACTION:DISPLAY',
+        `DESCRIPTION:Promemoria: ${escapeIcs(summary)}`,
+        'END:VALARM',
+        'END:VEVENT',
+      ]
+        .filter(Boolean)
+        .join('\r\n')
+    );
+  }
+
+  // 2. Richiamate in sospeso dell'utente (con allarme di scadenza)
+  const callbacks = await listCallbacks({
+    assignedUserId: user.id,
+    limit: 100,
+  });
+
+  for (const cb of callbacks) {
+    if (cb.status === 'completed' || cb.status === 'cancelled') continue;
+    const dtStart = formatIcsDate(cb.scheduledAt);
+    if (!dtStart) continue;
+
+    // Richiamata: finestra di 15 minuti
+    const endDate = new Date(new Date(cb.scheduledAt).getTime() + 15 * 60 * 1000).toISOString();
+    const dtEnd = formatIcsDate(endDate);
+
+    const related = cb.leadCompanyName || cb.companyName || '';
+    const summary = related ? `[Richiamata ${cb.priority.toUpperCase()}] ${cb.reason} - ${related}` : `[Richiamata] ${cb.reason}`;
+    const desc = [
+      `Motivo: ${cb.reason}`,
+      `Priorità: ${cb.priority}`,
+      related ? `Contatto: ${related}` : '',
+      cb.callId ? `ID Chiamata di origine: ${cb.callId}` : '',
+    ].filter(Boolean).join('\n');
+
+    vevents.push(
+      [
+        'BEGIN:VEVENT',
+        `UID:callback-${cb.id}@aiconsulting.crm`,
+        `DTSTAMP:${nowStamp}`,
+        `DTSTART:${dtStart}`,
+        `DTEND:${dtEnd}`,
+        `SUMMARY:${escapeIcs(summary)}`,
+        `DESCRIPTION:${escapeIcs(desc)}`,
+        'STATUS:CONFIRMED',
+        'BEGIN:VALARM',
+        'TRIGGER:-PT10M',
+        'ACTION:DISPLAY',
+        `DESCRIPTION:Promemoria richiamata: ${escapeIcs(cb.reason)}`,
+        'END:VALARM',
+        'END:VEVENT',
+      ]
+        .filter(Boolean)
+        .join('\r\n')
+    );
+  }
+
+  // 3. Promemoria rapidi con data/ora impostata
+  const reminders = await listReminders({
+    userId: user.id,
+    isCompleted: false,
+    limit: 100,
+  });
+
+  for (const r of reminders) {
+    if (!r.dueDateTime) continue;
+    const dtStart = formatIcsDate(r.dueDateTime);
+    if (!dtStart) continue;
+
+    const endDate = new Date(new Date(r.dueDateTime).getTime() + 30 * 60 * 1000).toISOString();
+    const dtEnd = formatIcsDate(endDate);
+
+    const related = r.leadCompanyName || r.companyName || '';
+    const summary = related ? `[Promemoria] ${r.title} (${related})` : `[Promemoria] ${r.title}`;
+    const desc = [
+      r.description || '',
+      `Categoria: ${r.category}`,
+      `Priorità: ${r.priority}`,
+      related ? `Riferimento: ${related}` : '',
+    ].filter(Boolean).join('\n');
+
+    vevents.push(
+      [
+        'BEGIN:VEVENT',
+        `UID:reminder-${r.id}@aiconsulting.crm`,
+        `DTSTAMP:${nowStamp}`,
+        `DTSTART:${dtStart}`,
+        `DTEND:${dtEnd}`,
+        `SUMMARY:${escapeIcs(summary)}`,
+        `DESCRIPTION:${escapeIcs(desc)}`,
+        'STATUS:CONFIRMED',
+        'BEGIN:VALARM',
+        'TRIGGER:-PT15M',
+        'ACTION:DISPLAY',
+        `DESCRIPTION:${escapeIcs(r.title)}`,
+        'END:VALARM',
+        'END:VEVENT',
+      ]
+        .filter(Boolean)
+        .join('\r\n')
+    );
+  }
+
+  // 4. Compiti/Task assegnati all'utente con plannedEndDate
+  try {
+    const userTasks = db
+      .select({
+        task: tasks,
+        projectTitle: projects.title,
+      })
+      .from(tasks)
+      .leftJoin(projects, eq(tasks.projectId, projects.id))
+      .where(
+        and(
+          ne(tasks.status, 'completato'),
+          ne(tasks.status, 'bloccato')
+        )
+      )
+      .limit(100)
+      .all();
+
+    for (const t of userTasks) {
+      if (!t.task.plannedEndDate) continue;
+      // Imposta evento scadenza compito
+      const dueIso = t.task.plannedEndDate.includes('T') ? t.task.plannedEndDate : `${t.task.plannedEndDate}T18:00:00.000Z`;
+      const dtStart = formatIcsDate(dueIso);
+      if (!dtStart) continue;
+
+      const endDate = new Date(new Date(dueIso).getTime() + 60 * 60 * 1000).toISOString();
+      const dtEnd = formatIcsDate(endDate);
+
+      const summary = `[Scadenza Task] ${t.task.title} (${t.projectTitle || 'Progetto'})`;
+      const desc = [
+        t.task.description || '',
+        `Progetto: ${t.projectTitle || 'N/D'}`,
+        `Priorità: ${t.task.priority}`,
+        `Stato: ${t.task.status}`,
+      ].filter(Boolean).join('\n');
+
+      vevents.push(
+        [
+          'BEGIN:VEVENT',
+          `UID:task-${t.task.id}@aiconsulting.crm`,
+          `DTSTAMP:${nowStamp}`,
+          `DTSTART:${dtStart}`,
+          `DTEND:${dtEnd}`,
+          `SUMMARY:${escapeIcs(summary)}`,
+          `DESCRIPTION:${escapeIcs(desc)}`,
+          'STATUS:CONFIRMED',
+          'BEGIN:VALARM',
+          'TRIGGER:-PT1H',
+          'ACTION:DISPLAY',
+          `DESCRIPTION:Scadenza compito: ${escapeIcs(t.task.title)}`,
+          'END:VALARM',
+          'END:VEVENT',
+        ]
+          .filter(Boolean)
+          .join('\r\n')
+      );
+    }
+  } catch (err) {
+    console.warn('Errore lettura task per sync calendario:', err);
+  }
+
+  return [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//AI Consulting CRM//Live Calendar Sync Hub//IT',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    `X-WR-CALNAME:AI CRM - ${escapeIcs(user.name)}`,
+    'X-WR-TIMEZONE:Europe/Rome',
+    'X-PUBLISHED-TTL:PT15M',
+    ...vevents,
+    'END:VCALENDAR',
+  ].join('\r\n');
 }

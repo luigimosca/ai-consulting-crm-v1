@@ -31,6 +31,7 @@ export async function POST(request: Request) {
         avatar: null,
         invitedBy: null,
         activatedAt: now,
+        calendarSyncToken: null,
         createdAt: now,
         updatedAt: now,
       };

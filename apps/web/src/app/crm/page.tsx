@@ -27,6 +27,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { getTodayAgenda } from '@/lib/activities-service';
+import { QuickRemindersWidget } from '@/components/crm/QuickRemindersWidget';
 
 export const dynamic = 'force-dynamic';
 
@@ -168,8 +169,8 @@ export default async function CrmDashboardPage() {
           </Link>
         </div>
 
-        {/* 4 Micro KPI Pill Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {/* 5 Micro KPI Pill Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
             <span className="text-[11px] text-slate-400 block font-medium">Appuntamenti Oggi</span>
             <span className="text-xl font-bold text-white mt-0.5 block">{todayAgenda.counts.todayAppointmentsCount}</span>
@@ -187,6 +188,10 @@ export default async function CrmDashboardPage() {
           <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
             <span className="text-[11px] text-slate-400 block font-medium">Chiamate Effettuate</span>
             <span className="text-xl font-bold text-emerald-400 mt-0.5 block">{todayAgenda.counts.todayCallsCount}</span>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 col-span-2 sm:col-span-1">
+            <span className="text-[11px] text-slate-400 block font-medium">Cose da Ricordare</span>
+            <span className="text-xl font-bold text-indigo-400 mt-0.5 block">{todayAgenda.counts.pendingRemindersCount}</span>
           </div>
         </div>
 
@@ -274,6 +279,9 @@ export default async function CrmDashboardPage() {
           </div>
         ) : null}
       </Card>
+
+      {/* Promemoria & Cose da Ricordare (Attività non legate a progetti) */}
+      <QuickRemindersWidget initialReminders={todayAgenda.pendingReminders as any} />
 
       {/* 2 Column Layout: Sectors + Recent Hot Leads */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
