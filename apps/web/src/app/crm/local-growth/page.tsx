@@ -8,28 +8,30 @@ import {
   Building2,
   Star,
   MessageSquare,
-  TrendingUp,
   Plus,
   CheckCircle2,
   Clock,
-  Layers,
   Check,
   X,
   RefreshCw,
   Copy,
-  ExternalLink,
-  ChevronRight,
   Filter,
-  Eye,
   Camera,
-  Hash,
   Download,
-  AlertCircle,
-  ThumbsUp,
   MapPin,
   Tag,
-  Radio,
-  FileText
+  Bot,
+  PhoneCall,
+  Send,
+  Globe,
+  FileText,
+  Code,
+  Search,
+  UserCheck,
+  ShieldCheck,
+  Zap,
+  Trash2,
+  Eye,
 } from 'lucide-react';
 
 interface Company {
@@ -37,6 +39,8 @@ interface Company {
   name: string;
   sector?: string;
   city?: string;
+  phone?: string;
+  address?: string;
 }
 
 interface SocialPost {
@@ -88,15 +92,102 @@ interface GbpPost {
   createdAt: string;
 }
 
+interface WhatsappFaqItem {
+  question: string;
+  answer: string;
+}
+
+interface WhatsappAgent {
+  id: string;
+  companyId: string;
+  agentName: string;
+  whatsappPhone?: string | null;
+  status: 'attivo' | 'pausa' | 'configurazione';
+  welcomeMessage: string;
+  businessHours?: string | null;
+  addressInfo?: string | null;
+  pricingMenuInfo?: string | null;
+  faqs: WhatsappFaqItem[];
+  bookingEnabled: boolean;
+  leadCaptureEnabled: boolean;
+  escalationPhone?: string | null;
+  toneOfVoice: 'cordiale_locale' | 'formale_professionale' | 'rapido_diretto';
+  webhookVerifyToken?: string | null;
+  companyName?: string | null;
+}
+
+interface WhatsappMessageItem {
+  role: 'customer' | 'agent_ai' | 'operator';
+  text: string;
+  timestamp: string;
+}
+
+interface WhatsappConversation {
+  id: string;
+  agentId?: string | null;
+  companyId: string;
+  customerPhone: string;
+  customerName: string;
+  intentDetected: 'info_orari_indirizzo' | 'preventivo_listino' | 'prenotazione_appuntamento' | 'assistenza_reclamo' | 'altro';
+  status: 'risolta_ai' | 'in_corso' | 'richiede_operatore' | 'prenotazione_confermata';
+  messages: WhatsappMessageItem[];
+  linkedLeadId?: string | null;
+  linkedAppointmentId?: string | null;
+  lastMessageAt: string;
+  companyName?: string | null;
+}
+
+interface ServiceShowcaseItem {
+  name: string;
+  description: string;
+  priceLabel: string;
+  badge?: string;
+}
+
+interface LocalSeoWebsite {
+  id: string;
+  companyId: string;
+  domainUrl?: string | null;
+  heroTitle: string;
+  heroSubtitle: string;
+  primaryCtaText: string;
+  targetCity: string;
+  targetKeywords: string[];
+  servicesShowcase: ServiceShowcaseItem[];
+  schemaMarkupJson?: string | null;
+  seoHealthScore: number;
+  status: 'bozza' | 'online' | 'in_aggiornamento';
+  companyName?: string | null;
+}
+
+interface LocalSeoArticle {
+  id: string;
+  companyId: string;
+  title: string;
+  slug: string;
+  targetKeyword: string;
+  targetCity: string;
+  metaTitle: string;
+  metaDescription: string;
+  excerpt: string;
+  contentHtml: string;
+  readingTimeMinutes: number;
+  seoScore: number;
+  publishStatus: 'bozza' | 'approvato' | 'pubblicato' | 'indicizzato';
+  publishedAt?: string | null;
+  companyName?: string | null;
+  createdAt: string;
+}
+
 export default function LocalGrowthPage() {
-  const [activeTab, setActiveTab] = useState<'social_ped' | 'gbp_hub'>('social_ped');
+  const [activeTab, setActiveTab] = useState<'social_ped' | 'gbp_hub' | 'whatsapp_ai' | 'seo_blog'>('social_ped');
   const [companiesList, setCompaniesList] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
 
   // Stats
   const [stats, setStats] = useState<any>(null);
 
-  // Social PED State
+  // Fase 1: Social PED State
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [channelFilter, setChannelFilter] = useState<string>('all');
@@ -104,13 +195,56 @@ export default function LocalGrowthPage() {
   const [selectedPostIds, setSelectedPostIds] = useState<string[]>([]);
   const [copiedPostId, setCopiedPostId] = useState<string | null>(null);
 
-  // GBP State
+  // Fase 2: GBP State
   const [reviews, setReviews] = useState<GbpReview[]>([]);
   const [gbpPosts, setGbpPosts] = useState<GbpPost[]>([]);
   const [loadingGbp, setLoadingGbp] = useState(false);
   const [reviewRatingFilter, setReviewRatingFilter] = useState<string>('all');
   const [replyInputMap, setReplyInputMap] = useState<Record<string, string>>({});
   const [generatingReplyForId, setGeneratingReplyForId] = useState<string | null>(null);
+
+  // Fase 3: WhatsApp AI Agent State
+  const [waAgent, setWaAgent] = useState<WhatsappAgent | null>(null);
+  const [waConversations, setWaConversations] = useState<WhatsappConversation[]>([]);
+  const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
+  const [loadingWa, setLoadingWa] = useState(false);
+  const [waForm, setWaForm] = useState<{
+    agentName: string;
+    whatsappPhone: string;
+    status: 'attivo' | 'pausa' | 'configurazione';
+    welcomeMessage: string;
+    businessHours: string;
+    addressInfo: string;
+    pricingMenuInfo: string;
+    bookingEnabled: boolean;
+    leadCaptureEnabled: boolean;
+    escalationPhone: string;
+    toneOfVoice: 'cordiale_locale' | 'formale_professionale' | 'rapido_diretto';
+  }>({
+    agentName: '',
+    whatsappPhone: '+39 348 9001122',
+    status: 'attivo',
+    welcomeMessage: '',
+    businessHours: '',
+    addressInfo: '',
+    pricingMenuInfo: '',
+    bookingEnabled: true,
+    leadCaptureEnabled: true,
+    escalationPhone: '',
+    toneOfVoice: 'cordiale_locale',
+  });
+  const [simCustomerName, setSimCustomerName] = useState('Marco Rossi');
+  const [simCustomerPhone, setSimCustomerPhone] = useState('+39 347 1122334');
+  const [simMessageText, setSimMessageText] = useState('');
+  const [operatorReplyText, setOperatorReplyText] = useState('');
+
+  // Fase 4: Local SEO Website & Blog State
+  const [seoWebsite, setSeoWebsite] = useState<LocalSeoWebsite | null>(null);
+  const [seoArticles, setSeoArticles] = useState<LocalSeoArticle[]>([]);
+  const [loadingSeo, setLoadingSeo] = useState(false);
+  const [previewArticle, setPreviewArticle] = useState<LocalSeoArticle | null>(null);
+  const [showSchemaModal, setShowSchemaModal] = useState(false);
+  const [seoTargetCity, setSeoTargetCity] = useState('Milano');
 
   // Modals
   const [isPedModalOpen, setIsPedModalOpen] = useState(false);
@@ -195,6 +329,12 @@ export default function LocalGrowthPage() {
         const data = await res.json();
         if (data.companies && Array.isArray(data.companies)) {
           setCompaniesList(data.companies);
+          if (data.companies.length > 0 && !selectedCompanyId) {
+            setSelectedCompanyId(data.companies[0].id);
+            if (data.companies[0].city) {
+              setSeoTargetCity(data.companies[0].city);
+            }
+          }
         }
       } catch (err) {
         console.error('Failed to load companies', err);
@@ -203,15 +343,19 @@ export default function LocalGrowthPage() {
     initData();
   }, []);
 
-  // Reload data when selectedCompanyId changes
+  // Reload data when selectedCompanyId or activeTab changes
   useEffect(() => {
     loadStats();
     if (activeTab === 'social_ped') {
       loadSocialPosts();
-    } else {
+    } else if (activeTab === 'gbp_hub') {
       loadGbpData();
+    } else if (activeTab === 'whatsapp_ai') {
+      loadWhatsappData();
+    } else if (activeTab === 'seo_blog') {
+      loadSeoData();
     }
-  }, [selectedCompanyId, activeTab]);
+  }, [selectedCompanyId, activeTab, channelFilter, statusFilter, reviewRatingFilter]);
 
   const loadStats = async () => {
     try {
@@ -259,7 +403,6 @@ export default function LocalGrowthPage() {
       const revData = await revRes.json();
       if (revData.success) {
         setReviews(revData.reviews || []);
-        // Pre-fill reply text map
         const initialMap: Record<string, string> = {};
         for (const r of revData.reviews || []) {
           if (r.replyText) initialMap[r.id] = r.replyText;
@@ -280,6 +423,89 @@ export default function LocalGrowthPage() {
     } finally {
       setLoadingGbp(false);
     }
+  };
+
+  const loadWhatsappData = async () => {
+    setLoadingWa(true);
+    try {
+      const agentUrl = selectedCompanyId
+        ? `/api/local-growth/whatsapp-agent?companyId=${selectedCompanyId}`
+        : '/api/local-growth/whatsapp-agent';
+      const agentRes = await fetch(agentUrl);
+      const agentData = await agentRes.json();
+      if (agentData.success && agentData.agent) {
+        const ag: WhatsappAgent = agentData.agent;
+        setWaAgent(ag);
+        setWaForm({
+          agentName: ag.agentName || '',
+          whatsappPhone: ag.whatsappPhone || '+39 348 9001122',
+          status: ag.status || 'attivo',
+          welcomeMessage: ag.welcomeMessage || '',
+          businessHours: ag.businessHours || '',
+          addressInfo: ag.addressInfo || '',
+          pricingMenuInfo: ag.pricingMenuInfo || '',
+          bookingEnabled: ag.bookingEnabled,
+          leadCaptureEnabled: ag.leadCaptureEnabled,
+          escalationPhone: ag.escalationPhone || '',
+          toneOfVoice: ag.toneOfVoice || 'cordiale_locale',
+        });
+      } else {
+        setWaAgent(null);
+      }
+
+      const convUrl = selectedCompanyId
+        ? `/api/local-growth/whatsapp-conversations?companyId=${selectedCompanyId}`
+        : '/api/local-growth/whatsapp-conversations';
+      const convRes = await fetch(convUrl);
+      const convData = await convRes.json();
+      if (convData.success) {
+        const list: WhatsappConversation[] = convData.conversations || [];
+        setWaConversations(list);
+        if (list.length > 0 && !selectedConvId) {
+          setSelectedConvId(list[0].id);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load WhatsApp data', err);
+    } finally {
+      setLoadingWa(false);
+    }
+  };
+
+  const loadSeoData = async () => {
+    setLoadingSeo(true);
+    try {
+      const webUrl = selectedCompanyId
+        ? `/api/local-growth/seo-website?companyId=${selectedCompanyId}`
+        : '/api/local-growth/seo-website';
+      const webRes = await fetch(webUrl);
+      const webData = await webRes.json();
+      if (webData.success) {
+        setSeoWebsite(webData.website || null);
+        if (webData.website?.targetCity) {
+          setSeoTargetCity(webData.website.targetCity);
+        }
+      }
+
+      const artUrl = selectedCompanyId
+        ? `/api/local-growth/seo-articles?companyId=${selectedCompanyId}`
+        : '/api/local-growth/seo-articles';
+      const artRes = await fetch(artUrl);
+      const artData = await artRes.json();
+      if (artData.success) {
+        setSeoArticles(artData.articles || []);
+      }
+    } catch (err) {
+      console.error('Failed to load SEO data', err);
+    } finally {
+      setLoadingSeo(false);
+    }
+  };
+
+  const getEffectiveCompanyId = () => {
+    if (selectedCompanyId) return selectedCompanyId;
+    if (companiesList.length > 0) return companiesList[0].id;
+    return '';
   };
 
   // Actions: PED Generator
@@ -333,7 +559,6 @@ export default function LocalGrowthPage() {
     }
   };
 
-  // Actions: Quick Post Status Change
   const handleUpdatePostStatus = async (postId: string, status: string) => {
     try {
       const res = await fetch(`/api/local-growth/posts/${postId}`, {
@@ -352,7 +577,6 @@ export default function LocalGrowthPage() {
     }
   };
 
-  // Actions: Delete Post
   const handleDeletePost = async (postId: string) => {
     if (!confirm('Eliminare questo post dal piano editoriale?')) return;
     try {
@@ -368,7 +592,6 @@ export default function LocalGrowthPage() {
     }
   };
 
-  // Actions: Single Post Creation
   const handleCreateSinglePost = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -413,7 +636,7 @@ export default function LocalGrowthPage() {
     }
   };
 
-  // Actions: Review AI Reply Generation
+  // Actions: Fase 2 GBP
   const handleGenerateAiReply = async (reviewId: string) => {
     setGeneratingReplyForId(reviewId);
     try {
@@ -435,7 +658,6 @@ export default function LocalGrowthPage() {
     }
   };
 
-  // Actions: Save / Publish Review Reply
   const handleSaveReviewReply = async (reviewId: string, publishNow: boolean) => {
     const text = replyInputMap[reviewId];
     if (!text || !text.trim()) {
@@ -464,17 +686,17 @@ export default function LocalGrowthPage() {
     }
   };
 
-  // Actions: Seed Sample Reviews
   const handleSeedSampleReviews = async () => {
-    if (!selectedCompanyId) {
-      alert('Seleziona prima un\'azienda dal menu a tendina in alto per generare recensioni di prova.');
+    const cid = getEffectiveCompanyId();
+    if (!cid) {
+      alert("Seleziona prima un'azienda dal menu a tendina in alto.");
       return;
     }
     try {
       const res = await fetch('/api/local-growth/reviews', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'seed_samples', companyId: selectedCompanyId }),
+        body: JSON.stringify({ action: 'seed_samples', companyId: cid }),
       });
       const data = await res.json();
       if (data.success) {
@@ -487,11 +709,11 @@ export default function LocalGrowthPage() {
     }
   };
 
-  // Actions: Create Google Business Post
   const handleCreateGbpPost = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newGbpPostForm.companyId && !selectedCompanyId) {
-      alert('Seleziona un\'azienda per l\'aggiornamento Google.');
+    const cid = newGbpPostForm.companyId || getEffectiveCompanyId();
+    if (!cid) {
+      alert("Seleziona un'azienda per l'aggiornamento Google.");
       return;
     }
     setIsSubmitting(true);
@@ -501,7 +723,7 @@ export default function LocalGrowthPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...newGbpPostForm,
-          companyId: newGbpPostForm.companyId || selectedCompanyId,
+          companyId: cid,
         }),
       });
       const data = await res.json();
@@ -517,6 +739,234 @@ export default function LocalGrowthPage() {
       alert(err.message || 'Errore di connessione');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Actions: Fase 3 WhatsApp AI Agent
+  const handleAutoGenerateWaAgent = async () => {
+    const cid = getEffectiveCompanyId();
+    if (!cid) {
+      alert("Seleziona prima un'attività dal menu in alto.");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/local-growth/whatsapp-agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId: cid,
+          autoGenerateKnowledgeBase: true,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message);
+        loadWhatsappData();
+        loadStats();
+      } else {
+        alert(data.error || 'Errore generazione Agente WhatsApp');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSaveWaAgent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cid = getEffectiveCompanyId();
+    if (!cid) {
+      alert("Seleziona prima un'attività dal menu in alto.");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/local-growth/whatsapp-agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId: cid,
+          ...waForm,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message);
+        loadWhatsappData();
+        loadStats();
+      } else {
+        alert(data.error || 'Errore nel salvataggio');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSimulateIncomingMessage = async (customText?: string) => {
+    const cid = getEffectiveCompanyId();
+    const textToSend = customText ?? simMessageText;
+    if (!cid || !textToSend.trim()) return;
+
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/local-growth/whatsapp-conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId: cid,
+          customerName: simCustomerName || 'Cliente WhatsApp',
+          customerPhone: simCustomerPhone || '+39 347 1122334',
+          messageText: textToSend.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.conversation) {
+        setSimMessageText('');
+        showToast(data.message);
+        await loadWhatsappData();
+        setSelectedConvId(data.conversation.id);
+        loadStats();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSeedWaConversations = async () => {
+    const cid = getEffectiveCompanyId();
+    if (!cid) {
+      alert("Seleziona prima un'attività dal menu in alto.");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/local-growth/whatsapp-conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'seed_samples',
+          companyId: cid,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message);
+        loadWhatsappData();
+        loadStats();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSendOperatorReply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedConvId || !operatorReplyText.trim()) return;
+    try {
+      const res = await fetch('/api/local-growth/whatsapp-conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'operator_reply',
+          conversationId: selectedConvId,
+          replyText: operatorReplyText.trim(),
+          status: 'risolta_ai',
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setOperatorReplyText('');
+        showToast(data.message);
+        loadWhatsappData();
+        loadStats();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Actions: Fase 4 Local SEO Website & Blog
+  const handleGenerateSeoWebsite = async () => {
+    const cid = getEffectiveCompanyId();
+    if (!cid) {
+      alert("Seleziona prima un'attività dal menu in alto.");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/local-growth/seo-website', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId: cid,
+          targetCity: seoTargetCity || 'Milano',
+          autoOptimizeAi: true,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message);
+        loadSeoData();
+        loadStats();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleGenerateSeoArticlesBatch = async () => {
+    const cid = getEffectiveCompanyId();
+    if (!cid) {
+      alert("Seleziona prima un'attività dal menu in alto.");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/local-growth/seo-articles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'generate_batch',
+          companyId: cid,
+          targetCity: seoTargetCity || 'Milano',
+          count: 4,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message);
+        loadSeoData();
+        loadStats();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteSeoArticle = async (articleId: string) => {
+    if (!confirm('Eliminare questo articolo dal blog SEO?')) return;
+    try {
+      const res = await fetch(`/api/local-growth/seo-articles?id=${articleId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setSeoArticles((prev) => prev.filter((a) => a.id !== articleId));
+        loadStats();
+      }
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -584,6 +1034,21 @@ export default function LocalGrowthPage() {
     }
   };
 
+  const getWaIntentBadge = (intent: string) => {
+    switch (intent) {
+      case 'prenotazione_appuntamento':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">📅 Prenotazione</span>;
+      case 'preventivo_listino':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40">💰 Preventivo & Listino</span>;
+      case 'assistenza_reclamo':
+        return <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/40">🚨 Richiede Operatore</span>;
+      default:
+        return <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/40">ℹ️ Info Orari & Sede</span>;
+    }
+  };
+
+  const activeConversation = waConversations.find((c) => c.id === selectedConvId) || waConversations[0] || null;
+
   return (
     <div className="space-y-6">
       {/* Toast Notification */}
@@ -597,18 +1062,18 @@ export default function LocalGrowthPage() {
       {/* Header & Controls */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="p-3 rounded-xl bg-gradient-to-br from-pink-500/20 via-purple-500/20 to-blue-500/20 text-pink-400 border border-pink-500/30">
+          <div className="p-3 rounded-xl bg-gradient-to-br from-pink-500/20 via-purple-500/20 to-emerald-500/20 text-pink-400 border border-pink-500/30">
             <Sparkles className="h-6 w-6" />
           </div>
           <div>
             <div className="flex items-center gap-2.5">
-              <h1 className="text-2xl font-bold text-white tracking-tight">Local Growth Hub</h1>
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                Fase 1 & Fase 2
+              <h1 className="text-2xl font-bold text-white tracking-tight">Local Growth & Visibility Hub</h1>
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                Suite Completa Fasi 1-4
               </span>
             </div>
             <p className="text-sm text-slate-400">
-              Piano editoriale social con Agente AI (30gg) e gestione reputazione Google Business Profile.
+              Piano Editoriale Social AI, Google Business Profile, Agente WhatsApp 24/7 e Sito & Blog SEO Locale Automatizzato.
             </p>
           </div>
         </div>
@@ -619,7 +1084,11 @@ export default function LocalGrowthPage() {
             <Building2 className="h-4 w-4 text-slate-400" />
             <select
               value={selectedCompanyId}
-              onChange={(e) => setSelectedCompanyId(e.target.value)}
+              onChange={(e) => {
+                setSelectedCompanyId(e.target.value);
+                const found = companiesList.find((c) => c.id === e.target.value);
+                if (found?.city) setSeoTargetCity(found.city);
+              }}
               className="bg-transparent text-xs text-white focus:outline-none cursor-pointer pr-2"
             >
               <option value="">Tutte le Attività / Clienti</option>
@@ -640,31 +1109,34 @@ export default function LocalGrowthPage() {
           </button>
 
           <button
-            onClick={() => setIsNewPostModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition-all"
+            onClick={() => setActiveTab('whatsapp_ai')}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-green-950/70 hover:bg-green-900/80 text-green-300 border border-green-700/60 text-xs font-semibold transition-all"
           >
-            <Plus className="h-4 w-4" />
-            <span>Nuovo Post</span>
+            <Bot className="h-4 w-4 text-green-400" />
+            <span>Agente WhatsApp 24/7</span>
           </button>
 
           <button
-            onClick={() => setIsNewGbpPostModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-950/60 hover:bg-emerald-900/70 text-emerald-300 border border-emerald-800/60 text-xs font-medium transition-all"
+            onClick={() => setActiveTab('seo_blog')}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-950/70 hover:bg-indigo-900/80 text-indigo-300 border border-indigo-700/60 text-xs font-semibold transition-all"
           >
-            <MapPin className="h-4 w-4 text-emerald-400" />
-            <span>Post su Google</span>
+            <Globe className="h-4 w-4 text-indigo-400" />
+            <span>Sito & Blog SEO</span>
           </button>
         </div>
       </div>
 
-      {/* KPI Cards Row */}
+      {/* KPI Cards Row (4 Pillars) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
+        <div
+          onClick={() => setActiveTab('social_ped')}
+          className="cursor-pointer bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-pink-500/40 p-4 rounded-xl flex items-center justify-between transition-all"
+        >
           <div>
-            <div className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">Post Social Totali</div>
-            <div className="text-2xl font-bold text-white mt-1">{stats?.social?.totalPosts || 0}</div>
+            <div className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">1. Piano Social PED</div>
+            <div className="text-2xl font-bold text-white mt-1">{stats?.social?.totalPosts || 0} Post</div>
             <div className="text-[11px] text-emerald-400 mt-1">
-              {stats?.social?.approvedPosts || 0} approvati / {stats?.social?.pendingPosts || 0} in bozza
+              {stats?.social?.approvedPosts || 0} approvati • {stats?.social?.pendingPosts || 0} bozze
             </div>
           </div>
           <div className="p-3 bg-pink-500/10 text-pink-400 rounded-xl">
@@ -672,63 +1144,76 @@ export default function LocalGrowthPage() {
           </div>
         </div>
 
-        <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
+        <div
+          onClick={() => setActiveTab('gbp_hub')}
+          className="cursor-pointer bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-amber-500/40 p-4 rounded-xl flex items-center justify-between transition-all"
+        >
           <div>
-            <div className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">Google Rating Medio</div>
+            <div className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">2. Google Maps & Review</div>
             <div className="text-2xl font-bold text-amber-400 mt-1 flex items-center gap-1.5">
               <span>{stats?.gbp?.avgRating || '5.0'}</span>
               <Star className="h-5 w-5 fill-amber-400 text-amber-400" />
             </div>
             <div className="text-[11px] text-slate-400 mt-1">
-              {stats?.gbp?.totalReviews || 0} recensioni monitorate
+              {stats?.gbp?.totalReviews || 0} recensioni • {stats?.gbp?.activeUpdatesCount || 0} post Maps
             </div>
           </div>
           <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl">
-            <Star className="h-5 w-5" />
-          </div>
-        </div>
-
-        <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
-          <div>
-            <div className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">Recensioni da Rispondere</div>
-            <div className={`text-2xl font-bold mt-1 ${stats?.gbp?.pendingReplies > 0 ? 'text-rose-400' : 'text-slate-200'}`}>
-              {stats?.gbp?.pendingReplies || 0}
-            </div>
-            <div className="text-[11px] text-slate-400 mt-1">
-              {stats?.gbp?.positivePercentage || 100}% sentiment positivo
-            </div>
-          </div>
-          <div className="p-3 bg-blue-500/10 text-blue-400 rounded-xl">
-            <MessageSquare className="h-5 w-5" />
-          </div>
-        </div>
-
-        <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
-          <div>
-            <div className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">Aggiornamenti Maps Attivi</div>
-            <div className="text-2xl font-bold text-emerald-400 mt-1">{stats?.gbp?.activeUpdatesCount || 0}</div>
-            <div className="text-[11px] text-slate-400 mt-1">Post Google & Offerte</div>
-          </div>
-          <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl">
             <MapPin className="h-5 w-5" />
+          </div>
+        </div>
+
+        <div
+          onClick={() => setActiveTab('whatsapp_ai')}
+          className="cursor-pointer bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-green-500/40 p-4 rounded-xl flex items-center justify-between transition-all"
+        >
+          <div>
+            <div className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">3. Agente WhatsApp 24/7</div>
+            <div className="text-2xl font-bold text-green-400 mt-1">
+              {stats?.whatsapp?.totalConversations || 0} Chat
+            </div>
+            <div className="text-[11px] text-emerald-300 mt-1">
+              {stats?.whatsapp?.confirmedBookings || 0} prenotazioni • {stats?.whatsapp?.leadsCaptured || 0} lead CRM
+            </div>
+          </div>
+          <div className="p-3 bg-green-500/10 text-green-400 rounded-xl">
+            <Bot className="h-5 w-5" />
+          </div>
+        </div>
+
+        <div
+          onClick={() => setActiveTab('seo_blog')}
+          className="cursor-pointer bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-indigo-500/40 p-4 rounded-xl flex items-center justify-between transition-all"
+        >
+          <div>
+            <div className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">4. Sito & Blog SEO Locale</div>
+            <div className="text-2xl font-bold text-indigo-400 mt-1">
+              {stats?.seo?.totalArticles || 0} Articoli
+            </div>
+            <div className="text-[11px] text-indigo-300 mt-1">
+              SEO Score: {stats?.seo?.avgSeoScore || 96}/100 • Schema JSON-LD
+            </div>
+          </div>
+          <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-xl">
+            <Globe className="h-5 w-5" />
           </div>
         </div>
       </div>
 
-      {/* Tab Switcher */}
-      <div className="flex border-b border-slate-800">
+      {/* 4-Tab Switcher */}
+      <div className="flex flex-wrap border-b border-slate-800 gap-1">
         <button
           onClick={() => setActiveTab('social_ped')}
-          className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 transition-colors ${
+          className={`flex items-center gap-2 px-4 py-3 text-xs sm:text-sm font-semibold border-b-2 transition-colors ${
             activeTab === 'social_ped'
-              ? 'border-pink-500 text-pink-400'
+              ? 'border-pink-500 text-pink-400 bg-pink-500/5'
               : 'border-transparent text-slate-400 hover:text-white'
           }`}
         >
           <CalendarIcon className="h-4 w-4" />
-          <span>Fase 1: Social Media Planner (PED 30gg)</span>
+          <span>1. Social Planner (PED 30gg)</span>
           {posts.length > 0 && (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-pink-500/20 text-pink-300">
+            <span className="px-2 py-0.5 rounded-full text-[11px] bg-pink-500/20 text-pink-300">
               {posts.length}
             </span>
           )}
@@ -736,19 +1221,49 @@ export default function LocalGrowthPage() {
 
         <button
           onClick={() => setActiveTab('gbp_hub')}
-          className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 transition-colors ${
+          className={`flex items-center gap-2 px-4 py-3 text-xs sm:text-sm font-semibold border-b-2 transition-colors ${
             activeTab === 'gbp_hub'
-              ? 'border-emerald-500 text-emerald-400'
+              ? 'border-emerald-500 text-emerald-400 bg-emerald-500/5'
               : 'border-transparent text-slate-400 hover:text-white'
           }`}
         >
           <MapPin className="h-4 w-4" />
-          <span>Fase 2: Google Business Profile & Recensioni AI</span>
+          <span>2. Google Business & Recensioni AI</span>
           {reviews.filter((r) => r.replyStatus === 'da_rispondere').length > 0 && (
-            <span className="px-2 py-0.5 rounded-full text-xs bg-rose-500/20 text-rose-300 font-bold">
-              {reviews.filter((r) => r.replyStatus === 'da_rispondere').length} da rispondere
+            <span className="px-2 py-0.5 rounded-full text-[11px] bg-rose-500/20 text-rose-300 font-bold">
+              {reviews.filter((r) => r.replyStatus === 'da_rispondere').length}
             </span>
           )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('whatsapp_ai')}
+          className={`flex items-center gap-2 px-4 py-3 text-xs sm:text-sm font-semibold border-b-2 transition-colors ${
+            activeTab === 'whatsapp_ai'
+              ? 'border-green-500 text-green-400 bg-green-500/5'
+              : 'border-transparent text-slate-400 hover:text-white'
+          }`}
+        >
+          <Bot className="h-4 w-4" />
+          <span>3. Agente WhatsApp 24/7</span>
+          <span className="px-2 py-0.5 rounded-full text-[11px] bg-green-500/20 text-green-300">
+            {waConversations.length} chat
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('seo_blog')}
+          className={`flex items-center gap-2 px-4 py-3 text-xs sm:text-sm font-semibold border-b-2 transition-colors ${
+            activeTab === 'seo_blog'
+              ? 'border-indigo-500 text-indigo-400 bg-indigo-500/5'
+              : 'border-transparent text-slate-400 hover:text-white'
+          }`}
+        >
+          <Globe className="h-4 w-4" />
+          <span>4. Sito Vetrina & Blog SEO Locale</span>
+          <span className="px-2 py-0.5 rounded-full text-[11px] bg-indigo-500/20 text-indigo-300">
+            {seoArticles.length} articoli
+          </span>
         </button>
       </div>
 
@@ -757,7 +1272,6 @@ export default function LocalGrowthPage() {
       {/* ==================================================================== */}
       {activeTab === 'social_ped' && (
         <div className="space-y-4">
-          {/* Action Toolbar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/60 border border-slate-800 p-3.5 rounded-xl">
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-1 text-xs text-slate-400">
@@ -801,6 +1315,14 @@ export default function LocalGrowthPage() {
               )}
 
               <button
+                onClick={() => setIsNewPostModalOpen(true)}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-xs flex items-center gap-1.5 border border-slate-700"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Singolo Post</span>
+              </button>
+
+              <button
                 onClick={handleExportCsv}
                 className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs flex items-center gap-1.5 border border-slate-700 transition-colors"
                 title="Esporta CSV per Meta Business Suite, Buffer o Hootsuite"
@@ -811,7 +1333,6 @@ export default function LocalGrowthPage() {
             </div>
           </div>
 
-          {/* Posts Grid */}
           {loadingPosts ? (
             <div className="py-16 text-center text-slate-400 flex flex-col items-center justify-center gap-3">
               <RefreshCw className="h-6 w-6 animate-spin text-pink-400" />
@@ -824,7 +1345,7 @@ export default function LocalGrowthPage() {
               </div>
               <h3 className="text-base font-bold text-white">Nessun post programmato</h3>
               <p className="text-xs text-slate-400 max-w-md mx-auto">
-                Clicca su "Genera PED 30gg AI" per creare all'istante una sequenza completa di contenuti strategici per l'attività selezionata.
+                Clicca su &ldquo;Genera PED 30gg AI&rdquo; per creare all&apos;istante una sequenza completa di contenuti strategici per l&apos;attività selezionata.
               </p>
               <button
                 onClick={() => setIsPedModalOpen(true)}
@@ -848,7 +1369,6 @@ export default function LocalGrowthPage() {
                     }`}
                   >
                     <div className="space-y-3">
-                      {/* Top Bar: Checkbox + Channel + Status */}
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <input
@@ -878,7 +1398,6 @@ export default function LocalGrowthPage() {
                         </div>
                       </div>
 
-                      {/* Title & Topic */}
                       <div>
                         {p.topic && (
                           <span className="text-[10px] uppercase font-bold text-pink-400 tracking-wider block">
@@ -888,11 +1407,10 @@ export default function LocalGrowthPage() {
                         <h4 className="text-sm font-bold text-white mt-0.5">{p.title}</h4>
                       </div>
 
-                      {/* Hook & Caption */}
                       <div className="p-3 rounded-xl bg-slate-950 border border-slate-800/80 space-y-2 text-xs">
                         {p.hook && (
                           <p className="font-semibold text-pink-200/90 italic">
-                            "{p.hook}"
+                            &ldquo;{p.hook}&rdquo;
                           </p>
                         )}
                         <p className="text-slate-300 leading-relaxed whitespace-pre-line line-clamp-4">
@@ -900,7 +1418,6 @@ export default function LocalGrowthPage() {
                         </p>
                       </div>
 
-                      {/* Call to action & hashtags */}
                       {p.callToAction && (
                         <div className="text-[11px] text-amber-300 font-medium flex items-center gap-1">
                           <Tag className="h-3 w-3" />
@@ -908,7 +1425,6 @@ export default function LocalGrowthPage() {
                         </div>
                       )}
 
-                      {/* Visual Prompt Recommendation */}
                       {p.visualPrompt && (
                         <div className="p-2.5 rounded-lg bg-indigo-950/30 border border-indigo-900/40 text-[11px] text-indigo-300 flex items-start gap-2">
                           <Camera className="h-3.5 w-3.5 flex-shrink-0 mt-0.5 text-indigo-400" />
@@ -916,7 +1432,6 @@ export default function LocalGrowthPage() {
                         </div>
                       )}
 
-                      {/* Hashtags */}
                       {p.hashtags.length > 0 && (
                         <div className="flex flex-wrap gap-1">
                           {p.hashtags.slice(0, 5).map((h, i) => (
@@ -928,7 +1443,6 @@ export default function LocalGrowthPage() {
                       )}
                     </div>
 
-                    {/* Bottom Action Footer */}
                     <div className="pt-4 mt-3 border-t border-slate-800 flex items-center justify-between text-xs">
                       <div className="flex items-center gap-1">
                         {p.publishStatus !== 'approvato' && (
@@ -978,7 +1492,6 @@ export default function LocalGrowthPage() {
       {/* ==================================================================== */}
       {activeTab === 'gbp_hub' && (
         <div className="space-y-6">
-          {/* Sub Header & Local SEO Banner */}
           <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-950/40 via-slate-900 to-indigo-950/40 border border-emerald-800/40 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="space-y-1">
               <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
@@ -996,10 +1509,16 @@ export default function LocalGrowthPage() {
                 <Sparkles className="h-3.5 w-3.5 text-amber-400" />
                 <span>Genera Recensioni di Prova</span>
               </button>
+              <button
+                onClick={() => setIsNewGbpPostModalOpen(true)}
+                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Nuova Offerta / Post Maps</span>
+              </button>
             </div>
           </div>
 
-          {/* Reviews List */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
@@ -1028,7 +1547,7 @@ export default function LocalGrowthPage() {
             ) : reviews.length === 0 ? (
               <div className="py-12 text-center bg-slate-900/40 border border-dashed border-slate-800 rounded-xl p-6">
                 <p className="text-xs text-slate-400">
-                  Nessuna recensione registrata per l'attività selezionata. Clicca su "Genera Recensioni di Prova" per simulare il flusso.
+                  Nessuna recensione registrata per l&apos;attività selezionata. Clicca su &ldquo;Genera Recensioni di Prova&rdquo; per simulare il flusso.
                 </p>
               </div>
             ) : (
@@ -1042,7 +1561,6 @@ export default function LocalGrowthPage() {
                       key={r.id}
                       className="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-4"
                     >
-                      {/* Reviewer Header */}
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-white">
@@ -1091,12 +1609,10 @@ export default function LocalGrowthPage() {
                         </div>
                       </div>
 
-                      {/* Review Comment */}
                       <p className="text-xs text-slate-300 leading-relaxed pl-12">
-                        "{r.comment}"
+                        &ldquo;{r.comment}&rdquo;
                       </p>
 
-                      {/* Reply Box */}
                       <div className="pl-12 space-y-2">
                         <div className="flex items-center justify-between">
                           <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -1152,7 +1668,6 @@ export default function LocalGrowthPage() {
             )}
           </div>
 
-          {/* Google Business Posts / Updates Section */}
           <div className="space-y-4 pt-6 border-t border-slate-800">
             <div className="flex items-center justify-between">
               <div>
@@ -1176,7 +1691,7 @@ export default function LocalGrowthPage() {
 
             {gbpPosts.length === 0 ? (
               <div className="py-8 text-center bg-slate-900/40 border border-slate-800 rounded-xl text-xs text-slate-500">
-                Nessun aggiornamento pubblicato su Google Maps. Clicca su "Nuovo Google Post" per creare la prima offerta o aggiornamento.
+                Nessun aggiornamento pubblicato su Google Maps. Clicca su &ldquo;Nuovo Google Post&rdquo; per creare la prima offerta o aggiornamento.
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1212,6 +1727,689 @@ export default function LocalGrowthPage() {
       )}
 
       {/* ==================================================================== */}
+      {/* TAB 3: AGENTE WHATSAPP AI 24/7 PER ATTIVITÀ LOCALI                   */}
+      {/* ==================================================================== */}
+      {activeTab === 'whatsapp_ai' && (
+        <div className="space-y-6">
+          {/* Top Banner */}
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-green-950/50 via-slate-900 to-emerald-950/40 border border-green-800/40 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-green-400 font-bold text-xs uppercase tracking-wider">
+                <Bot className="h-4 w-4" /> Concierge & Segreteria WhatsApp AI 24/7 collegata al CRM
+              </div>
+              <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+                Risponde istantaneamente ai messaggi dei clienti su orari, prezzi, menu e disponibilità, **acquisisce automaticamente il Lead nel CRM** e **fissa gli appuntamenti/prenotazioni direttamente nel Calendario**.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={handleAutoGenerateWaAgent}
+                disabled={isSubmitting}
+                className="px-3.5 py-2 rounded-xl bg-green-600 hover:bg-green-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-green-600/20 transition-all"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                <span>Genera Knowledge Base AI per l&apos;Attività</span>
+              </button>
+              <button
+                onClick={handleSeedWaConversations}
+                disabled={isSubmitting}
+                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-all"
+              >
+                <Zap className="h-3.5 w-3.5 text-amber-400" />
+                <span>Simula 3 Chat Clienti Reali</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left Column: Knowledge Base & Agent Config (5 cols) */}
+            <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-5 w-5 text-green-400" />
+                  <h3 className="text-sm font-bold text-white">Configurazione & Istruzioni Agente</h3>
+                </div>
+                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                  waForm.status === 'attivo'
+                    ? 'bg-green-500/20 text-green-300 border border-green-500/30'
+                    : 'bg-amber-500/20 text-amber-300'
+                }`}>
+                  {waForm.status === 'attivo' ? '● Online 24/7' : 'In Pausa'}
+                </span>
+              </div>
+
+              <form onSubmit={handleSaveWaAgent} className="space-y-3 text-xs">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-semibold text-slate-300 block mb-1">Nome Assistente AI</label>
+                    <input
+                      type="text"
+                      value={waForm.agentName}
+                      onChange={(e) => setWaForm({ ...waForm, agentName: e.target.value })}
+                      placeholder="Es. Concierge WhatsApp"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="font-semibold text-slate-300 block mb-1">Numero WhatsApp Business</label>
+                    <input
+                      type="text"
+                      value={waForm.whatsappPhone}
+                      onChange={(e) => setWaForm({ ...waForm, whatsappPhone: e.target.value })}
+                      placeholder="+39 348 9001122"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="font-semibold text-slate-300 block mb-1">Messaggio di Benvenuto Automatico</label>
+                  <textarea
+                    rows={3}
+                    value={waForm.welcomeMessage}
+                    onChange={(e) => setWaForm({ ...waForm, welcomeMessage: e.target.value })}
+                    placeholder="Clicca su 'Genera Knowledge Base AI' in alto per autocompilare tutti i dati dell'attività..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white leading-relaxed"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-semibold text-slate-300 block mb-1">Orari di Apertura & Giorni di Chiusura</label>
+                  <input
+                    type="text"
+                    value={waForm.businessHours}
+                    onChange={(e) => setWaForm({ ...waForm, businessHours: e.target.value })}
+                    placeholder="Es. Lun-Sab 09:00-20:00 (Domenica chiuso)"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-semibold text-slate-300 block mb-1">Indirizzo Sede & Info Parcheggio</label>
+                  <input
+                    type="text"
+                    value={waForm.addressInfo}
+                    onChange={(e) => setWaForm({ ...waForm, addressInfo: e.target.value })}
+                    placeholder="Es. Via Roma 42, Milano (Parcheggio convenzionato a 50m)"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-semibold text-slate-300 block mb-1">Listino Prezzi / Menu / Servizi Principali</label>
+                  <textarea
+                    rows={3}
+                    value={waForm.pricingMenuInfo}
+                    onChange={(e) => setWaForm({ ...waForm, pricingMenuInfo: e.target.value })}
+                    placeholder="Inserisci i prezzi, le tariffe o il menu che l'agente può comunicare ai clienti..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white leading-relaxed"
+                  />
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <span className="text-slate-300 font-medium">Prenotazione automatica nel Calendario CRM</span>
+                    <input
+                      type="checkbox"
+                      checked={waForm.bookingEnabled}
+                      onChange={(e) => setWaForm({ ...waForm, bookingEnabled: e.target.checked })}
+                      className="rounded border-slate-700 text-green-600 focus:ring-green-500"
+                    />
+                  </label>
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <span className="text-slate-300 font-medium">Acquisizione automatica Lead nel CRM</span>
+                    <input
+                      type="checkbox"
+                      checked={waForm.leadCaptureEnabled}
+                      onChange={(e) => setWaForm({ ...waForm, leadCaptureEnabled: e.target.checked })}
+                      className="rounded border-slate-700 text-green-600 focus:ring-green-500"
+                    />
+                  </label>
+                </div>
+
+                {waAgent?.faqs && waAgent.faqs.length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                      FAQ Memorizzate dall&apos;Agente ({waAgent.faqs.length})
+                    </div>
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                      {waAgent.faqs.map((faq, idx) => (
+                        <div key={idx} className="p-2.5 rounded-lg bg-slate-950 border border-slate-800/80 text-[11px]">
+                          <div className="font-semibold text-green-300">D: {faq.question}</div>
+                          <div className="text-slate-400 mt-0.5">R: {faq.answer}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full py-2.5 rounded-xl bg-green-600 hover:bg-green-500 text-white font-semibold text-xs shadow-md shadow-green-600/20 transition-all"
+                >
+                  {isSubmitting ? 'Salvataggio in corso...' : 'Salva Configurazione Agente WhatsApp'}
+                </button>
+              </form>
+            </div>
+
+            {/* Right Column: Live WhatsApp Simulator & Conversation Inbox (7 cols) */}
+            <div className="lg:col-span-7 space-y-4">
+              {/* Interactive Simulator Bar */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-green-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <PhoneCall className="h-3.5 w-3.5" /> Test Live: Simula Messaggio Cliente su WhatsApp
+                  </span>
+                  <span className="text-[11px] text-slate-400">Risposta AI istantanea + Sync CRM</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <input
+                    type="text"
+                    value={simCustomerName}
+                    onChange={(e) => setSimCustomerName(e.target.value)}
+                    placeholder="Nome Cliente (es. Marco Rossi)"
+                    className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-white"
+                  />
+                  <input
+                    type="text"
+                    value={simCustomerPhone}
+                    onChange={(e) => setSimCustomerPhone(e.target.value)}
+                    placeholder="Telefono Cliente (+39 347...)"
+                    className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-white font-mono"
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={simMessageText}
+                    onChange={(e) => setSimMessageText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleSimulateIncomingMessage();
+                      }
+                    }}
+                    placeholder="Scrivi come un cliente (es. 'Vorrei prenotare per domani alle 20:30 per 4 persone')..."
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-green-500 focus:outline-none"
+                  />
+                  <button
+                    onClick={() => handleSimulateIncomingMessage()}
+                    disabled={isSubmitting || !simMessageText.trim()}
+                    className="px-4 py-2 rounded-xl bg-green-600 hover:bg-green-500 text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    <span>Invia a WhatsApp AI</span>
+                  </button>
+                </div>
+
+                {/* Quick Test Presets */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[10px] text-slate-400 mr-1">Test rapidi 1-clic:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleSimulateIncomingMessage('Ciao! Vorrei prenotare per domani sera, avete posto?')}
+                    className="px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-slate-800 text-emerald-300 border border-emerald-800/50 text-[11px]"
+                  >
+                    📅 Prenota Appuntamento / Tavolo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSimulateIncomingMessage('Buongiorno, quali sono i vostri prezzi e come funziona il servizio?')}
+                    className="px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-slate-800 text-amber-300 border border-amber-800/50 text-[11px]"
+                  >
+                    💰 Chiedi Prezzi / Preventivo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSimulateIncomingMessage('Siete aperti oggi? Dove vi trovate e dove posso parcheggiare?')}
+                    className="px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-slate-800 text-blue-300 border border-blue-800/50 text-[11px]"
+                  >
+                    📍 Chiedi Orari & Parcheggio
+                  </button>
+                </div>
+              </div>
+
+              {/* Conversations Split View */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-4 min-h-[420px]">
+                {/* Thread List (5 cols) */}
+                <div className="md:col-span-5 border-r border-slate-800 pr-2 space-y-2 max-h-[420px] overflow-y-auto">
+                  <div className="text-xs font-bold text-slate-300 px-1 pb-1">
+                    Conversazioni Recenti ({waConversations.length})
+                  </div>
+                  {waConversations.length === 0 ? (
+                    <div className="py-12 text-center text-xs text-slate-500 px-2">
+                      Nessuna chat presente. Usa i pulsanti di test rapido qui sopra per provare l&apos;Agente WhatsApp!
+                    </div>
+                  ) : (
+                    waConversations.map((c) => {
+                      const isSelected = activeConversation?.id === c.id;
+                      const lastMsg = c.messages[c.messages.length - 1];
+                      return (
+                        <div
+                          key={c.id}
+                          onClick={() => setSelectedConvId(c.id)}
+                          className={`p-3 rounded-xl cursor-pointer border transition-all space-y-1.5 ${
+                            isSelected
+                              ? 'bg-green-950/30 border-green-500/50'
+                              : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-white">{c.customerName}</span>
+                            <span className="text-[10px] text-slate-500 font-mono">{c.customerPhone}</span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1">
+                            {getWaIntentBadge(c.intentDetected)}
+                            {c.linkedLeadId && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                                Lead CRM ✓
+                              </span>
+                            )}
+                            {c.linkedAppointmentId && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                In Agenda ✓
+                              </span>
+                            )}
+                          </div>
+                          {lastMsg && (
+                            <p className="text-[11px] text-slate-400 line-clamp-2">{lastMsg.text}</p>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Active Chat Window (7 cols) */}
+                <div className="md:col-span-7 flex flex-col justify-between pl-1">
+                  {activeConversation ? (
+                    <>
+                      <div className="border-b border-slate-800 pb-2.5 mb-3 flex items-center justify-between">
+                        <div>
+                          <div className="text-sm font-bold text-white flex items-center gap-2">
+                            <span>{activeConversation.customerName}</span>
+                            <span className="text-xs text-slate-400 font-mono">{activeConversation.customerPhone}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            {getWaIntentBadge(activeConversation.intentDetected)}
+                            {activeConversation.linkedLeadId && (
+                              <span className="text-[10px] text-indigo-300 flex items-center gap-1">
+                                <UserCheck className="h-3 w-3" /> Salvato nei Lead CRM
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Messages Bubble List */}
+                      <div className="flex-1 space-y-3 overflow-y-auto max-h-[290px] pr-2 py-1">
+                        {activeConversation.messages.map((m, idx) => {
+                          const isCustomer = m.role === 'customer';
+                          return (
+                            <div
+                              key={idx}
+                              className={`flex flex-col ${isCustomer ? 'items-start' : 'items-end'}`}
+                            >
+                              <div
+                                className={`max-w-[85%] rounded-2xl p-3 text-xs leading-relaxed whitespace-pre-line ${
+                                  isCustomer
+                                    ? 'bg-slate-800 text-slate-100 rounded-tl-none'
+                                    : m.role === 'operator'
+                                    ? 'bg-indigo-900/80 text-white border border-indigo-700 rounded-tr-none'
+                                    : 'bg-green-900/60 text-green-50 border border-green-700/60 rounded-tr-none'
+                                }`}
+                              >
+                                <div className="text-[10px] font-bold mb-1 opacity-75">
+                                  {isCustomer
+                                    ? `👤 ${activeConversation.customerName}`
+                                    : m.role === 'operator'
+                                    ? '👨‍💼 Operatore Umano'
+                                    : '🤖 Agente WhatsApp AI 24/7'}
+                                </div>
+                                {m.text}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Operator Manual Intervention Bar */}
+                      <form onSubmit={handleSendOperatorReply} className="pt-3 mt-2 border-t border-slate-800 flex gap-2">
+                        <input
+                          type="text"
+                          value={operatorReplyText}
+                          onChange={(e) => setOperatorReplyText(e.target.value)}
+                          placeholder="Intervieni manualmente nella chat come operatore..."
+                          className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white"
+                        />
+                        <button
+                          type="submit"
+                          className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold"
+                        >
+                          Rispondi
+                        </button>
+                      </form>
+                    </>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-xs text-slate-500">
+                      Seleziona o simula una conversazione WhatsApp per visualizzare i messaggi.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* TAB 4: SITO VETRINA & BLOG SEO LOCALE AUTOMATIZZATO                   */}
+      {/* ==================================================================== */}
+      {activeTab === 'seo_blog' && (
+        <div className="space-y-6">
+          {/* Top Action Bar */}
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-950/50 via-slate-900 to-purple-950/40 border border-indigo-800/40 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-indigo-400 font-bold text-xs uppercase tracking-wider">
+                <Globe className="h-4 w-4" /> Sito Vetrina Ad Alta Conversione & Blog SEO Locale Automatizzato
+              </div>
+              <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+                Genera automaticamente la struttura del **Sito Vetrina Locale**, i dati strutturati **Schema.org `LocalBusiness` JSON-LD** per Google e gli **Articoli Blog SEO geolocalizzati** sulla città del cliente per dominare le ricerche organiche.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5">
+                <MapPin className="h-3.5 w-3.5 text-indigo-400" />
+                <input
+                  type="text"
+                  value={seoTargetCity}
+                  onChange={(e) => setSeoTargetCity(e.target.value)}
+                  placeholder="Città target (es. Milano)"
+                  className="bg-transparent text-xs text-white w-28 focus:outline-none"
+                />
+              </div>
+
+              <button
+                onClick={handleGenerateSeoWebsite}
+                disabled={isSubmitting}
+                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition-all"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                <span>Genera Sito Vetrina & Schema SEO</span>
+              </button>
+
+              <button
+                onClick={handleGenerateSeoArticlesBatch}
+                disabled={isSubmitting}
+                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md transition-all"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                <span>Genera 4 Articoli Blog SEO Locali</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Showcase Website Preview Card */}
+          {seoWebsite ? (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      Sito Vetrina Ottimizzato • SEO Score {seoWebsite.seoHealthScore}/100
+                    </span>
+                    <span className="text-xs text-indigo-400 font-mono">{seoWebsite.domainUrl}</span>
+                  </div>
+                  <h3 className="text-lg font-bold text-white mt-1.5">{seoWebsite.heroTitle}</h3>
+                  <p className="text-xs text-slate-300 mt-1">{seoWebsite.heroSubtitle}</p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowSchemaModal(true)}
+                    className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 text-xs font-semibold flex items-center gap-1.5"
+                  >
+                    <Code className="h-4 w-4" />
+                    <span>Schema.org JSON-LD</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Services Showcase Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {seoWebsite.servicesShowcase.map((srv, i) => (
+                  <div key={i} className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between space-y-2">
+                    <div className="space-y-1.5">
+                      {srv.badge && (
+                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
+                          {srv.badge}
+                        </span>
+                      )}
+                      <h4 className="text-sm font-bold text-white">{srv.name}</h4>
+                      <p className="text-xs text-slate-400 leading-relaxed">{srv.description}</p>
+                    </div>
+                    <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                      <span className="text-xs font-bold text-emerald-400">{srv.priceLabel}</span>
+                      <span className="text-[11px] text-indigo-300 font-medium">{seoWebsite.primaryCtaText} →</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Geolocalized Keywords Bar */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1 mr-1">
+                  <Search className="h-3.5 w-3.5 text-indigo-400" /> Keywords Locali presidiate:
+                </span>
+                {seoWebsite.targetKeywords.map((kw, i) => (
+                  <span
+                    key={i}
+                    className="px-2.5 py-0.5 rounded-full text-[11px] bg-indigo-950/60 text-indigo-300 border border-indigo-800/50"
+                  >
+                    {kw}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="p-8 rounded-2xl bg-slate-900/40 border border-dashed border-slate-800 text-center space-y-3">
+              <Globe className="h-8 w-8 text-indigo-400 mx-auto" />
+              <h3 className="text-sm font-bold text-white">Sito Vetrina Locale non ancora generato</h3>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                Clicca su &ldquo;Genera Sito Vetrina & Schema SEO&rdquo; per creare subito Hero, Servizi, Keywords geolocalizzate e dati strutturati JSON-LD per Google.
+              </p>
+            </div>
+          )}
+
+          {/* Automated SEO Blog Articles Section */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <FileText className="h-4 w-4 text-purple-400" />
+                <span>Articoli Blog SEO Geolocalizzati ({seoArticles.length})</span>
+              </h3>
+            </div>
+
+            {loadingSeo ? (
+              <div className="py-12 text-center text-slate-400 flex flex-col items-center justify-center gap-2">
+                <RefreshCw className="h-6 w-6 animate-spin text-indigo-400" />
+                <span className="text-xs">Caricamento articoli SEO...</span>
+              </div>
+            ) : seoArticles.length === 0 ? (
+              <div className="py-12 text-center bg-slate-900/40 border border-dashed border-slate-800 rounded-2xl p-6 space-y-3">
+                <p className="text-xs text-slate-400">
+                  Nessun articolo SEO presente. Clicca su &ldquo;Genera 4 Articoli Blog SEO Locali&rdquo; per produrre automaticamente articoli ottimizzati sulla città e sul settore dell&apos;attività.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {seoArticles.map((art) => (
+                  <div
+                    key={art.id}
+                    className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between space-y-4"
+                  >
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            SEO {art.seoScore}/100
+                          </span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                            📍 {art.targetCity}
+                          </span>
+                          <span className="text-[11px] text-slate-400">• {art.readingTimeMinutes} min lettura</span>
+                        </div>
+                        <span className="text-[10px] uppercase font-bold text-emerald-400">
+                          {art.publishStatus}
+                        </span>
+                      </div>
+
+                      <h4 className="text-base font-bold text-white">{art.title}</h4>
+                      <div className="text-[11px] text-amber-300 font-mono">
+                        Keyword Target: &ldquo;{art.targetKeyword}&rdquo; • /{art.slug}
+                      </div>
+
+                      <p className="text-xs text-slate-300 leading-relaxed">{art.excerpt}</p>
+
+                      {/* SERP Snippet Preview */}
+                      <div className="p-3 rounded-xl bg-slate-950 border border-slate-800/80 space-y-1">
+                        <div className="text-[10px] text-slate-500 uppercase font-bold">Anteprima Risultato Google (SERP)</div>
+                        <div className="text-xs font-semibold text-blue-400 truncate">{art.metaTitle}</div>
+                        <div className="text-[11px] text-slate-400 line-clamp-2">{art.metaDescription}</div>
+                      </div>
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setPreviewArticle(art)}
+                          className="px-3 py-1.5 rounded-lg bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 font-semibold text-xs flex items-center gap-1"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          <span>Leggi Articolo Completo</span>
+                        </button>
+                        <button
+                          onClick={() => copyPostToClipboard(art.id, art.contentHtml)}
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center gap-1"
+                        >
+                          {copiedPostId === art.id ? (
+                            <span className="text-emerald-300">HTML Copiato ✓</span>
+                          ) : (
+                            <>
+                              <Copy className="h-3 w-3" />
+                              <span>Copia HTML</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      <button
+                        onClick={() => handleDeleteSeoArticle(art.id)}
+                        className="text-slate-500 hover:text-rose-400 p-1"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* MODAL: PREVIEW ARTICOLO BLOG SEO COMPLETO                            */}
+      {/* ==================================================================== */}
+      {previewArticle && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-2xl rounded-2xl p-6 shadow-2xl relative max-h-[85vh] overflow-y-auto space-y-4">
+            <button
+              onClick={() => setPreviewArticle(null)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="space-y-1 pr-8">
+              <div className="flex items-center gap-2 text-xs text-indigo-400 font-semibold">
+                <span>Keyword: {previewArticle.targetKeyword}</span>
+                <span>•</span>
+                <span>Città: {previewArticle.targetCity}</span>
+                <span>•</span>
+                <span>SEO Score: {previewArticle.seoScore}/100</span>
+              </div>
+              <h3 className="text-lg font-bold text-white">{previewArticle.title}</h3>
+            </div>
+
+            <div
+              className="prose prose-invert prose-sm max-w-none bg-slate-950 border border-slate-800 rounded-xl p-5 text-slate-200 space-y-3 leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: previewArticle.contentHtml }}
+            />
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  copyPostToClipboard(previewArticle.id, previewArticle.contentHtml);
+                  showToast('Codice HTML dell articolo copiato negli appunti!');
+                }}
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                <span>Copia Articolo HTML per WordPress / Sito</span>
+              </button>
+              <button
+                onClick={() => setPreviewArticle(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-medium"
+              >
+                Chiudi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* MODAL: SCHEMA.ORG LOCALBUSINESS JSON-LD                              */}
+      {/* ==================================================================== */}
+      {showSchemaModal && seoWebsite && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-xl rounded-2xl p-6 shadow-2xl relative space-y-4">
+            <button
+              onClick={() => setShowSchemaModal(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <div>
+              <h3 className="text-base font-bold text-white">Dati Strutturati Schema.org LocalBusiness (JSON-LD)</h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Pronto da inserire nell&apos;header del sito per comunicare a Google indirizzo, orari, coordinate e fascia prezzo.
+              </p>
+            </div>
+            <pre className="bg-slate-950 border border-slate-800 rounded-xl p-4 text-[11px] text-emerald-300 font-mono overflow-x-auto max-h-80">
+              {seoWebsite.schemaMarkupJson}
+            </pre>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(seoWebsite.schemaMarkupJson || '');
+                  showToast('Schema.org JSON-LD copiato negli appunti!');
+                }}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
+              >
+                Copia JSON-LD
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
       {/* MODAL 1: GENERA PED 30 GIORNI AI                                    */}
       {/* ==================================================================== */}
       {isPedModalOpen && (
@@ -1231,7 +2429,7 @@ export default function LocalGrowthPage() {
               <div>
                 <h3 className="text-lg font-bold text-white">Generatore Piano Editoriale Social (PED)</h3>
                 <p className="text-xs text-slate-400">
-                  L'Agente AI pianificherà un intero mese di contenuti strategici bilanciati.
+                  L&apos;Agente AI pianificherà un intero mese di contenuti strategici bilanciati.
                 </p>
               </div>
             </div>
@@ -1255,7 +2453,7 @@ export default function LocalGrowthPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="font-semibold text-slate-300 block mb-1">Settore dell'Attività</label>
+                  <label className="font-semibold text-slate-300 block mb-1">Settore dell&apos;Attività</label>
                   <select
                     value={pedForm.sector}
                     onChange={(e) => setPedForm({ ...pedForm, sector: e.target.value })}
@@ -1553,7 +2751,7 @@ export default function LocalGrowthPage() {
               </div>
 
               <div>
-                <label className="font-semibold text-slate-300 block mb-1">Titolo dell'Aggiornamento</label>
+                <label className="font-semibold text-slate-300 block mb-1">Titolo dell&apos;Aggiornamento</label>
                 <input
                   type="text"
                   required

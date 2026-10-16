@@ -1659,6 +1659,158 @@ export const localGbpPosts = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// FASE 3: Agente WhatsApp AI 24/7 per Attività Locali
+// ---------------------------------------------------------------------------
+
+export const localWhatsappAgents = sqliteTable(
+  'local_whatsapp_agents',
+  {
+    id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .notNull()
+      .references(() => companies.id),
+    agentName: text('agent_name').notNull(),
+    whatsappPhone: text('whatsapp_phone'),
+    status: text('status', {
+      enum: ['attivo', 'pausa', 'configurazione'],
+    })
+      .notNull()
+      .default('attivo'),
+    welcomeMessage: text('welcome_message').notNull(),
+    businessHours: text('business_hours'),
+    addressInfo: text('address_info'),
+    pricingMenuInfo: text('pricing_menu_info'),
+    faqJson: text('faq_json').default('[]'),
+    bookingEnabled: integer('booking_enabled', { mode: 'boolean' }).notNull().default(true),
+    leadCaptureEnabled: integer('lead_capture_enabled', { mode: 'boolean' }).notNull().default(true),
+    escalationPhone: text('escalation_phone'),
+    toneOfVoice: text('tone_of_voice', {
+      enum: ['cordiale_locale', 'formale_professionale', 'rapido_diretto'],
+    })
+      .notNull()
+      .default('cordiale_locale'),
+    webhookVerifyToken: text('webhook_verify_token'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    companyIdIdx: index('local_wa_agents_company_idx').on(table.companyId),
+    statusIdx: index('local_wa_agents_status_idx').on(table.status),
+  })
+);
+
+export const localWhatsappConversations = sqliteTable(
+  'local_whatsapp_conversations',
+  {
+    id: text('id').primaryKey(),
+    agentId: text('agent_id').references(() => localWhatsappAgents.id),
+    companyId: text('company_id')
+      .notNull()
+      .references(() => companies.id),
+    customerPhone: text('customer_phone').notNull(),
+    customerName: text('customer_name').notNull(),
+    intentDetected: text('intent_detected', {
+      enum: [
+        'info_orari_indirizzo',
+        'preventivo_listino',
+        'prenotazione_appuntamento',
+        'assistenza_reclamo',
+        'altro',
+      ],
+    })
+      .notNull()
+      .default('info_orari_indirizzo'),
+    status: text('status', {
+      enum: ['risolta_ai', 'in_corso', 'richiede_operatore', 'prenotazione_confermata'],
+    })
+      .notNull()
+      .default('in_corso'),
+    messagesJson: text('messages_json').notNull().default('[]'),
+    linkedLeadId: text('linked_lead_id').references(() => leads.id),
+    linkedAppointmentId: text('linked_appointment_id').references(() => crmAppointments.id),
+    lastMessageAt: text('last_message_at').notNull(),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    companyIdIdx: index('local_wa_conv_company_idx').on(table.companyId),
+    agentIdIdx: index('local_wa_conv_agent_idx').on(table.agentId),
+    statusIdx: index('local_wa_conv_status_idx').on(table.status),
+    lastMessageIdx: index('local_wa_conv_last_msg_idx').on(table.lastMessageAt),
+  })
+);
+
+// ---------------------------------------------------------------------------
+// FASE 4: Sito Vetrina & Blog SEO Locale Automatizzato
+// ---------------------------------------------------------------------------
+
+export const localSeoWebsites = sqliteTable(
+  'local_seo_websites',
+  {
+    id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .notNull()
+      .references(() => companies.id),
+    domainUrl: text('domain_url'),
+    heroTitle: text('hero_title').notNull(),
+    heroSubtitle: text('hero_subtitle').notNull(),
+    primaryCtaText: text('primary_cta_text').notNull().default('Prenota Ora su WhatsApp'),
+    targetCity: text('target_city').notNull().default('Milano'),
+    targetKeywordsJson: text('target_keywords_json').default('[]'),
+    servicesShowcaseJson: text('services_showcase_json').default('[]'),
+    schemaMarkupJson: text('schema_markup_json'),
+    seoHealthScore: integer('seo_health_score').notNull().default(92),
+    status: text('status', {
+      enum: ['bozza', 'online', 'in_aggiornamento'],
+    })
+      .notNull()
+      .default('online'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    companyIdIdx: index('local_seo_web_company_idx').on(table.companyId),
+    statusIdx: index('local_seo_web_status_idx').on(table.status),
+  })
+);
+
+export const localSeoArticles = sqliteTable(
+  'local_seo_articles',
+  {
+    id: text('id').primaryKey(),
+    companyId: text('company_id')
+      .notNull()
+      .references(() => companies.id),
+    websiteId: text('website_id').references(() => localSeoWebsites.id),
+    title: text('title').notNull(),
+    slug: text('slug').notNull(),
+    targetKeyword: text('target_keyword').notNull(),
+    targetCity: text('target_city').notNull(),
+    metaTitle: text('meta_title').notNull(),
+    metaDescription: text('meta_description').notNull(),
+    excerpt: text('excerpt').notNull(),
+    contentHtml: text('content_html').notNull(),
+    readingTimeMinutes: integer('reading_time_minutes').notNull().default(4),
+    seoScore: integer('seo_score').notNull().default(95),
+    publishStatus: text('publish_status', {
+      enum: ['bozza', 'approvato', 'pubblicato', 'indicizzato'],
+    })
+      .notNull()
+      .default('pubblicato'),
+    publishedAt: text('published_at'),
+    createdById: text('created_by_id').references(() => users.id),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    companyIdIdx: index('local_seo_art_company_idx').on(table.companyId),
+    websiteIdIdx: index('local_seo_art_website_idx').on(table.websiteId),
+    statusIdx: index('local_seo_art_status_idx').on(table.publishStatus),
+    slugIdx: index('local_seo_art_slug_idx').on(table.slug),
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Type Exports
 // ---------------------------------------------------------------------------
 
@@ -1814,3 +1966,16 @@ export type NewLocalGbpReview = typeof localGbpReviews.$inferInsert;
 
 export type LocalGbpPost = typeof localGbpPosts.$inferSelect;
 export type NewLocalGbpPost = typeof localGbpPosts.$inferInsert;
+
+export type LocalWhatsappAgent = typeof localWhatsappAgents.$inferSelect;
+export type NewLocalWhatsappAgent = typeof localWhatsappAgents.$inferInsert;
+
+export type LocalWhatsappConversation = typeof localWhatsappConversations.$inferSelect;
+export type NewLocalWhatsappConversation = typeof localWhatsappConversations.$inferInsert;
+
+export type LocalSeoWebsite = typeof localSeoWebsites.$inferSelect;
+export type NewLocalSeoWebsite = typeof localSeoWebsites.$inferInsert;
+
+export type LocalSeoArticle = typeof localSeoArticles.$inferSelect;
+export type NewLocalSeoArticle = typeof localSeoArticles.$inferInsert;
+

@@ -1113,6 +1113,94 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS local_gbp_posts_company_idx ON local_gbp_posts(company_id);
     CREATE INDEX IF NOT EXISTS local_gbp_posts_status_idx ON local_gbp_posts(status);
     CREATE INDEX IF NOT EXISTS local_gbp_posts_start_date_idx ON local_gbp_posts(start_date);
+
+    -- Fase 3: Agente WhatsApp AI 24/7 per Attività Locali
+    CREATE TABLE IF NOT EXISTS local_whatsapp_agents (
+      id TEXT PRIMARY KEY,
+      company_id TEXT NOT NULL REFERENCES companies(id),
+      agent_name TEXT NOT NULL,
+      whatsapp_phone TEXT,
+      status TEXT NOT NULL DEFAULT 'attivo',
+      welcome_message TEXT NOT NULL,
+      business_hours TEXT,
+      address_info TEXT,
+      pricing_menu_info TEXT,
+      faq_json TEXT DEFAULT '[]',
+      booking_enabled INTEGER NOT NULL DEFAULT 1,
+      lead_capture_enabled INTEGER NOT NULL DEFAULT 1,
+      escalation_phone TEXT,
+      tone_of_voice TEXT NOT NULL DEFAULT 'cordiale_locale',
+      webhook_verify_token TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS local_wa_agents_company_idx ON local_whatsapp_agents(company_id);
+    CREATE INDEX IF NOT EXISTS local_wa_agents_status_idx ON local_whatsapp_agents(status);
+
+    CREATE TABLE IF NOT EXISTS local_whatsapp_conversations (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT REFERENCES local_whatsapp_agents(id),
+      company_id TEXT NOT NULL REFERENCES companies(id),
+      customer_phone TEXT NOT NULL,
+      customer_name TEXT NOT NULL,
+      intent_detected TEXT NOT NULL DEFAULT 'info_orari_indirizzo',
+      status TEXT NOT NULL DEFAULT 'in_corso',
+      messages_json TEXT NOT NULL DEFAULT '[]',
+      linked_lead_id TEXT REFERENCES leads(id),
+      linked_appointment_id TEXT REFERENCES crm_appointments(id),
+      last_message_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS local_wa_conv_company_idx ON local_whatsapp_conversations(company_id);
+    CREATE INDEX IF NOT EXISTS local_wa_conv_agent_idx ON local_whatsapp_conversations(agent_id);
+    CREATE INDEX IF NOT EXISTS local_wa_conv_status_idx ON local_whatsapp_conversations(status);
+    CREATE INDEX IF NOT EXISTS local_wa_conv_last_msg_idx ON local_whatsapp_conversations(last_message_at);
+
+    -- Fase 4: Sito Vetrina & Blog SEO Locale Automatizzato
+    CREATE TABLE IF NOT EXISTS local_seo_websites (
+      id TEXT PRIMARY KEY,
+      company_id TEXT NOT NULL REFERENCES companies(id),
+      domain_url TEXT,
+      hero_title TEXT NOT NULL,
+      hero_subtitle TEXT NOT NULL,
+      primary_cta_text TEXT NOT NULL DEFAULT 'Prenota Ora su WhatsApp',
+      target_city TEXT NOT NULL DEFAULT 'Milano',
+      target_keywords_json TEXT DEFAULT '[]',
+      services_showcase_json TEXT DEFAULT '[]',
+      schema_markup_json TEXT,
+      seo_health_score INTEGER NOT NULL DEFAULT 92,
+      status TEXT NOT NULL DEFAULT 'online',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS local_seo_web_company_idx ON local_seo_websites(company_id);
+    CREATE INDEX IF NOT EXISTS local_seo_web_status_idx ON local_seo_websites(status);
+
+    CREATE TABLE IF NOT EXISTS local_seo_articles (
+      id TEXT PRIMARY KEY,
+      company_id TEXT NOT NULL REFERENCES companies(id),
+      website_id TEXT REFERENCES local_seo_websites(id),
+      title TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      target_keyword TEXT NOT NULL,
+      target_city TEXT NOT NULL,
+      meta_title TEXT NOT NULL,
+      meta_description TEXT NOT NULL,
+      excerpt TEXT NOT NULL,
+      content_html TEXT NOT NULL,
+      reading_time_minutes INTEGER NOT NULL DEFAULT 4,
+      seo_score INTEGER NOT NULL DEFAULT 95,
+      publish_status TEXT NOT NULL DEFAULT 'pubblicato',
+      published_at TEXT,
+      created_by_id TEXT REFERENCES users(id),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS local_seo_art_company_idx ON local_seo_articles(company_id);
+    CREATE INDEX IF NOT EXISTS local_seo_art_website_idx ON local_seo_articles(website_id);
+    CREATE INDEX IF NOT EXISTS local_seo_art_status_idx ON local_seo_articles(publish_status);
+    CREATE INDEX IF NOT EXISTS local_seo_art_slug_idx ON local_seo_articles(slug);
   `);
 
   // Non-destructive unique index bootstrap: detect conflicts independently without deleting any data or notes
