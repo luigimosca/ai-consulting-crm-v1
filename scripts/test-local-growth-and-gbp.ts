@@ -63,6 +63,12 @@ async function runLocalGrowthTests() {
     listLocalSeoArticles,
     createLocalSeoArticle,
     deleteLocalSeoArticle,
+    buildPublicVetrinaSlug,
+    resolveCompanyByPublicSlug,
+    listPublicVetrinaDirectory,
+    getPublicVetrinaBundle,
+    getPublicVetrinaArticle,
+    handlePublicVetrinaInteraction,
     getLocalGrowthStats,
   } = await import('../apps/web/src/lib/local-growth-service');
 
@@ -373,6 +379,55 @@ async function runLocalGrowthTests() {
     assert(stats.seo.websitesCount === 1, '1 Local SEO website active');
     assert(stats.seo.totalArticles === 4, '4 Local SEO blog articles active');
     assert(stats.seo.avgSeoScore >= 95, `Average SEO score is ${stats.seo.avgSeoScore}/100`);
+
+    // -------------------------------------------------------------------------
+    // Test 8: Fase 5 - Sito Vetrina & Blog REALMENTE Pubblici (/vetrina/[slug])
+    // -------------------------------------------------------------------------
+    console.log('\n--- 8. Testing Public Showcase Website, Blog & Live Visitor Booking (/vetrina/[slug]) ---');
+    const expectedSlug = buildPublicVetrinaSlug(testCompany.name, 'Roma');
+    assert(expectedSlug === 'trattoria-da-luigi-roma', `Public slug generated accurately (${expectedSlug})`);
+    assert(fetchedWeb?.publicUrl === `/vetrina/${expectedSlug}`, `Website publicUrl is /vetrina/${expectedSlug}`);
+
+    const resolvedBySlug = resolveCompanyByPublicSlug(expectedSlug);
+    assert(resolvedBySlug?.id === testCompany.id, 'Company resolved by public SEO slug');
+
+    const resolvedById = resolveCompanyByPublicSlug(testCompany.id);
+    assert(resolvedById?.id === testCompany.id, 'Company resolved by direct companyId');
+
+    const directory = await listPublicVetrinaDirectory();
+    assert(directory.length === 1, 'Public directory lists 1 active local website');
+    assert(directory[0].publicUrl === `/vetrina/${expectedSlug}`, 'Directory item contains publicUrl');
+    assert(directory[0].articlesCount === 4, 'Directory item shows 4 published articles');
+
+    const publicBundle = await getPublicVetrinaBundle(expectedSlug);
+    assert(!!publicBundle, 'Public Vetrina bundle retrieved by slug');
+    assert(publicBundle?.company.name === 'Trattoria Da Luigi', 'Bundle contains company metadata');
+    assert(publicBundle?.articles.length === 4, 'Bundle contains 4 SEO blog articles');
+    assert(publicBundle?.reviews.length === 4, 'Bundle contains 4 verified Google reviews');
+    assert(publicBundle?.gbpOffers.length === 1, 'Bundle contains 1 active Google Maps offer');
+    assert(!!publicBundle?.whatsappAgent.agentName, 'Bundle contains active WhatsApp AI 24/7 config');
+
+    const firstArticleSlug = publicBundle!.articles[0].slug;
+    const publicArticleData = await getPublicVetrinaArticle(expectedSlug, firstArticleSlug);
+    assert(!!publicArticleData, 'Public Blog Article retrieved by slug');
+    assert(publicArticleData?.article.slug === firstArticleSlug, 'Article slug matches');
+    assert(publicArticleData?.relatedArticles.length === 3, 'Related articles populated (3 items)');
+
+    // Test live visitor booking interaction from the public website widget
+    const publicInteraction = await handlePublicVetrinaInteraction(expectedSlug, {
+      customerName: 'Giulia Bianchi',
+      customerPhone: '+39 340 9988776',
+      customerEmail: 'giulia.bianchi@example.it',
+      serviceSelected: 'Menu Degustazione del Territorio',
+      preferredDate: 'Sabato ore 20:30',
+      messageText: 'Siamo in 2 persone, vorremmo un tavolo tranquillo.',
+    });
+    assert(publicInteraction.status === 'prenotazione_confermata', 'Public website booking confirmed by AI agent');
+    assert(!!publicInteraction.linkedLeadId, 'Visitor from public website automatically saved in CRM leads');
+    assert(!!publicInteraction.linkedAppointmentId, 'Visitor booking automatically saved in CRM appointments');
+
+    const publicLead = db.select().from(leads).where(eq(leads.id, publicInteraction.linkedLeadId!)).get();
+    assert(publicLead?.email === 'giulia.bianchi@example.it', 'Visitor email saved on CRM lead record');
 
     console.log('\n========================================================================');
     console.log(`=== ALL LOCAL GROWTH TESTS PASSED: ${passedTests}/${totalTests} SUCCESSFUL ===`);

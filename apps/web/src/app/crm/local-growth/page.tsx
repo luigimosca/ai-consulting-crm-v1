@@ -32,6 +32,7 @@ import {
   Zap,
   Trash2,
   Eye,
+  ExternalLink,
 } from 'lucide-react';
 
 interface Company {
@@ -158,6 +159,8 @@ interface LocalSeoWebsite {
   seoHealthScore: number;
   status: 'bozza' | 'online' | 'in_aggiornamento';
   companyName?: string | null;
+  publicSlug?: string;
+  publicUrl?: string;
 }
 
 interface LocalSeoArticle {
@@ -2156,19 +2159,45 @@ export default function LocalGrowthPage() {
           {/* Showcase Website Preview Card */}
           {seoWebsite ? (
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-800 pb-4">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                      Sito Vetrina Ottimizzato • SEO Score {seoWebsite.seoHealthScore}/100
+                      ● Sito Vetrina Pubblicato • SEO Score {seoWebsite.seoHealthScore}/100
                     </span>
-                    <span className="text-xs text-indigo-400 font-mono">{seoWebsite.domainUrl}</span>
+                    <span className="text-xs text-indigo-400 font-mono">
+                      {seoWebsite.publicUrl || `/vetrina/${seoWebsite.companyId}`}
+                    </span>
                   </div>
                   <h3 className="text-lg font-bold text-white mt-1.5">{seoWebsite.heroTitle}</h3>
                   <p className="text-xs text-slate-300 mt-1">{seoWebsite.heroSubtitle}</p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <a
+                    href={seoWebsite.publicUrl || `/vetrina/${seoWebsite.companyId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all"
+                  >
+                    <Globe className="h-4 w-4" />
+                    <span>Apri Sito Vetrina Live</span>
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const fullUrl = `${window.location.origin}${seoWebsite.publicUrl || `/vetrina/${seoWebsite.companyId}`}`;
+                      navigator.clipboard.writeText(fullUrl);
+                      showToast('Link pubblico del Sito Vetrina copiato negli appunti!');
+                    }}
+                    className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5"
+                  >
+                    <Copy className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>Copia Link Pubblico</span>
+                  </button>
+
                   <button
                     onClick={() => setShowSchemaModal(true)}
                     className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 text-xs font-semibold flex items-center gap-1.5"
@@ -2232,6 +2261,15 @@ export default function LocalGrowthPage() {
                 <FileText className="h-4 w-4 text-purple-400" />
                 <span>Articoli Blog SEO Geolocalizzati ({seoArticles.length})</span>
               </h3>
+              <a
+                href="/vetrina"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
+              >
+                <span>Esplora Directory Pubblica Vetrine</span>
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
             </div>
 
             {loadingSeo ? (
@@ -2247,75 +2285,88 @@ export default function LocalGrowthPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {seoArticles.map((art) => (
-                  <div
-                    key={art.id}
-                    className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between space-y-4"
-                  >
-                    <div className="space-y-2.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                            SEO {art.seoScore}/100
+                {seoArticles.map((art) => {
+                  const baseVetrinaUrl = seoWebsite?.publicUrl || `/vetrina/${art.companyId}`;
+                  const publicArticleUrl = `${baseVetrinaUrl}/blog/${art.slug}`;
+                  return (
+                    <div
+                      key={art.id}
+                      className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between space-y-4"
+                    >
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                              SEO {art.seoScore}/100
+                            </span>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                              📍 {art.targetCity}
+                            </span>
+                            <span className="text-[11px] text-slate-400">• {art.readingTimeMinutes} min lettura</span>
+                          </div>
+                          <span className="text-[10px] uppercase font-bold text-emerald-400">
+                            {art.publishStatus}
                           </span>
-                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-                            📍 {art.targetCity}
-                          </span>
-                          <span className="text-[11px] text-slate-400">• {art.readingTimeMinutes} min lettura</span>
                         </div>
-                        <span className="text-[10px] uppercase font-bold text-emerald-400">
-                          {art.publishStatus}
-                        </span>
+
+                        <h4 className="text-base font-bold text-white">{art.title}</h4>
+                        <div className="text-[11px] text-amber-300 font-mono">
+                          Keyword Target: &ldquo;{art.targetKeyword}&rdquo; • /{art.slug}
+                        </div>
+
+                        <p className="text-xs text-slate-300 leading-relaxed">{art.excerpt}</p>
+
+                        {/* SERP Snippet Preview */}
+                        <div className="p-3 rounded-xl bg-slate-950 border border-slate-800/80 space-y-1">
+                          <div className="text-[10px] text-slate-500 uppercase font-bold">Anteprima Risultato Google (SERP)</div>
+                          <div className="text-xs font-semibold text-blue-400 truncate">{art.metaTitle}</div>
+                          <div className="text-[11px] text-slate-400 line-clamp-2">{art.metaDescription}</div>
+                        </div>
                       </div>
 
-                      <h4 className="text-base font-bold text-white">{art.title}</h4>
-                      <div className="text-[11px] text-amber-300 font-mono">
-                        Keyword Target: &ldquo;{art.targetKeyword}&rdquo; • /{art.slug}
-                      </div>
+                      <div className="pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <a
+                            href={publicArticleUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 border border-emerald-500/30 font-semibold text-xs flex items-center gap-1"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            <span>Vedi Articolo Live</span>
+                          </a>
+                          <button
+                            onClick={() => setPreviewArticle(art)}
+                            className="px-3 py-1.5 rounded-lg bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 font-semibold text-xs flex items-center gap-1"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            <span>Anteprima</span>
+                          </button>
+                          <button
+                            onClick={() => copyPostToClipboard(art.id, art.contentHtml)}
+                            className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center gap-1"
+                          >
+                            {copiedPostId === art.id ? (
+                              <span className="text-emerald-300">HTML Copiato ✓</span>
+                            ) : (
+                              <>
+                                <Copy className="h-3 w-3" />
+                                <span>Copia HTML</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
 
-                      <p className="text-xs text-slate-300 leading-relaxed">{art.excerpt}</p>
-
-                      {/* SERP Snippet Preview */}
-                      <div className="p-3 rounded-xl bg-slate-950 border border-slate-800/80 space-y-1">
-                        <div className="text-[10px] text-slate-500 uppercase font-bold">Anteprima Risultato Google (SERP)</div>
-                        <div className="text-xs font-semibold text-blue-400 truncate">{art.metaTitle}</div>
-                        <div className="text-[11px] text-slate-400 line-clamp-2">{art.metaDescription}</div>
+                        <button
+                          onClick={() => handleDeleteSeoArticle(art.id)}
+                          className="text-slate-500 hover:text-rose-400 p-1"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     </div>
-
-                    <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setPreviewArticle(art)}
-                          className="px-3 py-1.5 rounded-lg bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 font-semibold text-xs flex items-center gap-1"
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                          <span>Leggi Articolo Completo</span>
-                        </button>
-                        <button
-                          onClick={() => copyPostToClipboard(art.id, art.contentHtml)}
-                          className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center gap-1"
-                        >
-                          {copiedPostId === art.id ? (
-                            <span className="text-emerald-300">HTML Copiato ✓</span>
-                          ) : (
-                            <>
-                              <Copy className="h-3 w-3" />
-                              <span>Copia HTML</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-
-                      <button
-                        onClick={() => handleDeleteSeoArticle(art.id)}
-                        className="text-slate-500 hover:text-rose-400 p-1"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

@@ -1485,6 +1485,16 @@ function getSectorWebsitePreset(sector: string, companyName: string, city: strin
   };
 }
 
+export function buildPublicVetrinaSlug(companyName: string, city?: string | null): string {
+  const base = `${companyName} ${city || ''}`
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+  return base || 'attivita-locale';
+}
+
 export async function getLocalWebsite(companyId?: string) {
   let targetCompanyId = companyId;
   if (!targetCompanyId) {
@@ -1507,6 +1517,11 @@ export async function getLocalWebsite(companyId?: string) {
 
   if (!existing) return null;
 
+  const publicSlug = buildPublicVetrinaSlug(
+    existing.companyName || 'Attività Locale',
+    existing.web.targetCity || existing.companyCity
+  );
+
   return {
     ...existing.web,
     targetKeywords: existing.web.targetKeywordsJson ? (JSON.parse(existing.web.targetKeywordsJson) as string[]) : [],
@@ -1515,6 +1530,8 @@ export async function getLocalWebsite(companyId?: string) {
       : [],
     companyName: existing.companyName,
     companySector: existing.companySector,
+    publicSlug,
+    publicUrl: `/vetrina/${publicSlug}`,
   };
 }
 
@@ -1528,6 +1545,7 @@ export async function generateOrUpdateLocalWebsite(
   const city = input.targetCity || comp?.city || 'Milano';
 
   const preset = getSectorWebsitePreset(sector, companyName, city, comp?.phone, comp?.address);
+  const publicSlug = buildPublicVetrinaSlug(companyName, city);
 
   const existing = db
     .select()
@@ -1567,7 +1585,7 @@ export async function generateOrUpdateLocalWebsite(
       entityId: id,
       action: 'local_seo_website_created',
       performedBy: user.userId,
-      details: { companyId: input.companyId, domainUrl: newWeb.domainUrl, targetCity: city },
+      details: { companyId: input.companyId, domainUrl: newWeb.domainUrl, targetCity: city, publicSlug },
     });
 
     return {
@@ -1576,6 +1594,8 @@ export async function generateOrUpdateLocalWebsite(
       servicesShowcase: JSON.parse(newWeb.servicesShowcaseJson || '[]') as ServiceShowcaseItem[],
       companyName,
       companySector: sector,
+      publicSlug,
+      publicUrl: `/vetrina/${publicSlug}`,
     };
   } else {
     const updateData: Partial<LocalSeoWebsite> = {
@@ -1609,13 +1629,14 @@ export async function generateOrUpdateLocalWebsite(
       .run();
 
     const merged = { ...existing, ...updateData };
+    const finalSlug = buildPublicVetrinaSlug(companyName, merged.targetCity || city);
 
     await logActivity({
       entityType: 'local_seo_websites',
       entityId: existing.id,
       action: 'local_seo_website_updated',
       performedBy: user.userId,
-      details: { companyId: input.companyId, autoOptimizeAi: !!input.autoOptimizeAi },
+      details: { companyId: input.companyId, autoOptimizeAi: !!input.autoOptimizeAi, publicSlug: finalSlug },
     });
 
     return {
@@ -1624,6 +1645,8 @@ export async function generateOrUpdateLocalWebsite(
       servicesShowcase: JSON.parse(merged.servicesShowcaseJson || '[]') as ServiceShowcaseItem[],
       companyName,
       companySector: sector,
+      publicSlug: finalSlug,
+      publicUrl: `/vetrina/${finalSlug}`,
     };
   }
 }
@@ -2015,6 +2038,304 @@ function getLocalSeoArticleTemplates(sector: string, companyName: string, city: 
 </article>`,
     },
   ];
+}
+
+// ============================================================================
+// FASE 5: SITO VETRINA & BLOG REALMENTE PUBBLICI E NAVIGABILI (/vetrina/[slug])
+// ============================================================================
+
+export function resolveCompanyByPublicSlug(slugOrId: string) {
+  const cleanInput = decodeURIComponent(slugOrId).trim().toLowerCase();
+
+  // 1. Direct match by companyId
+  const byId = db.select().from(companies).where(eq(companies.id, slugOrId.trim())).get();
+  if (byId) return byId;
+
+  // 2. Direct match by websiteId
+  const webById = db.select().from(localSeoWebsites).where(eq(localSeoWebsites.id, slugOrId.trim())).get();
+  if (webById) {
+    const comp = db.select().from(companies).where(eq(companies.id, webById.companyId)).get();
+    if (comp) return comp;
+  }
+
+  // 3. Match by generated slug (companyName + targetCity or companyName + company.city or companyName alone)
+  const allWebs = db
+    .select({
+      web: localSeoWebsites,
+      comp: companies,
+    })
+    .from(localSeoWebsites)
+    .innerJoin(companies, eq(localSeoWebsites.companyId, companies.id))
+    .all();
+
+  for (const row of allWebs) {
+    const slugWithWebCity = buildPublicVetrinaSlug(row.comp.name, row.web.targetCity);
+    const slugWithCompCity = buildPublicVetrinaSlug(row.comp.name, row.comp.city);
+    const slugNameOnly = buildPublicVetrinaSlug(row.comp.name, '');
+    if (
+      cleanInput === slugWithWebCity ||
+      cleanInput === slugWithCompCity ||
+      cleanInput === slugNameOnly
+    ) {
+      return row.comp;
+    }
+  }
+
+  const allComps = db.select().from(companies).all();
+  for (const comp of allComps) {
+    const slugWithCity = buildPublicVetrinaSlug(comp.name, comp.city);
+    const slugNameOnly = buildPublicVetrinaSlug(comp.name, '');
+    if (
+      cleanInput === slugWithCity ||
+      cleanInput === slugNameOnly ||
+      cleanInput.startsWith(slugNameOnly)
+    ) {
+      return comp;
+    }
+  }
+
+  return null;
+}
+
+export async function listPublicVetrinaDirectory() {
+  const rows = db
+    .select({
+      web: localSeoWebsites,
+      comp: companies,
+    })
+    .from(localSeoWebsites)
+    .innerJoin(companies, eq(localSeoWebsites.companyId, companies.id))
+    .orderBy(desc(localSeoWebsites.updatedAt))
+    .all();
+
+  return rows.map((r) => {
+    const city = r.web.targetCity || r.comp.city || 'Milano';
+    const publicSlug = buildPublicVetrinaSlug(r.comp.name, city);
+    const articles = db
+      .select()
+      .from(localSeoArticles)
+      .where(eq(localSeoArticles.companyId, r.comp.id))
+      .all();
+    const reviews = db
+      .select()
+      .from(localGbpReviews)
+      .where(eq(localGbpReviews.companyId, r.comp.id))
+      .all();
+    const avgRating =
+      reviews.length > 0
+        ? (reviews.reduce((acc, rev) => acc + rev.rating, 0) / reviews.length).toFixed(1)
+        : '5.0';
+
+    return {
+      websiteId: r.web.id,
+      companyId: r.comp.id,
+      companyName: r.comp.name,
+      sector: r.comp.sector || 'local_services',
+      city,
+      heroTitle: r.web.heroTitle,
+      heroSubtitle: r.web.heroSubtitle,
+      primaryCtaText: r.web.primaryCtaText,
+      seoHealthScore: r.web.seoHealthScore,
+      status: r.web.status,
+      publicSlug,
+      publicUrl: `/vetrina/${publicSlug}`,
+      articlesCount: articles.length,
+      reviewsCount: reviews.length,
+      avgRating,
+    };
+  });
+}
+
+export async function getPublicVetrinaBundle(slugOrCompanyId: string) {
+  const comp = resolveCompanyByPublicSlug(slugOrCompanyId);
+  if (!comp) return null;
+
+  const websiteRow = db
+    .select()
+    .from(localSeoWebsites)
+    .where(eq(localSeoWebsites.companyId, comp.id))
+    .get();
+
+  const city = websiteRow?.targetCity || comp.city || 'Milano';
+  const sector = comp.sector || 'local_services';
+  const preset = getSectorWebsitePreset(sector, comp.name, city, comp.phone, comp.address);
+  const publicSlug = buildPublicVetrinaSlug(comp.name, city);
+
+  const website = websiteRow
+    ? {
+        ...websiteRow,
+        targetKeywords: websiteRow.targetKeywordsJson
+          ? (JSON.parse(websiteRow.targetKeywordsJson) as string[])
+          : preset.targetKeywords,
+        servicesShowcase: websiteRow.servicesShowcaseJson
+          ? (JSON.parse(websiteRow.servicesShowcaseJson) as ServiceShowcaseItem[])
+          : preset.servicesShowcase,
+        schemaMarkupJson: websiteRow.schemaMarkupJson || preset.schemaMarkupJson,
+      }
+    : {
+        id: `virtual_web_${comp.id}`,
+        companyId: comp.id,
+        domainUrl: preset.domainUrl,
+        heroTitle: preset.heroTitle,
+        heroSubtitle: preset.heroSubtitle,
+        primaryCtaText: preset.primaryCtaText,
+        targetCity: city,
+        targetKeywords: preset.targetKeywords,
+        servicesShowcase: preset.servicesShowcase,
+        schemaMarkupJson: preset.schemaMarkupJson,
+        seoHealthScore: 95,
+        status: 'online' as const,
+      };
+
+  const waAgentRow = db
+    .select()
+    .from(localWhatsappAgents)
+    .where(eq(localWhatsappAgents.companyId, comp.id))
+    .get();
+
+  const waPreset = getSectorWhatsappPreset(sector, comp.name, city, comp.address, comp.phone);
+
+  const whatsappAgent = {
+    agentName: waAgentRow?.agentName || waPreset.agentName,
+    whatsappPhone: waAgentRow?.whatsappPhone || comp.phone || '+39 348 9001122',
+    welcomeMessage: waAgentRow?.welcomeMessage || waPreset.welcomeMessage,
+    businessHours: waAgentRow?.businessHours || waPreset.businessHours,
+    addressInfo: waAgentRow?.addressInfo || waPreset.addressInfo,
+    pricingMenuInfo: waAgentRow?.pricingMenuInfo || waPreset.pricingMenuInfo,
+    faqs: waAgentRow?.faqJson
+      ? (JSON.parse(waAgentRow.faqJson) as WhatsappFaqItem[])
+      : waPreset.faqs,
+    bookingEnabled: waAgentRow ? waAgentRow.bookingEnabled : true,
+  };
+
+  const articles = db
+    .select()
+    .from(localSeoArticles)
+    .where(eq(localSeoArticles.companyId, comp.id))
+    .orderBy(desc(localSeoArticles.createdAt))
+    .all();
+
+  const reviews = db
+    .select()
+    .from(localGbpReviews)
+    .where(eq(localGbpReviews.companyId, comp.id))
+    .orderBy(desc(localGbpReviews.reviewDate))
+    .limit(12)
+    .all();
+
+  const gbpOffers = db
+    .select()
+    .from(localGbpPosts)
+    .where(eq(localGbpPosts.companyId, comp.id))
+    .orderBy(desc(localGbpPosts.createdAt))
+    .limit(6)
+    .all();
+
+  const avgRating =
+    reviews.length > 0
+      ? (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1)
+      : '5.0';
+
+  return {
+    company: {
+      id: comp.id,
+      name: comp.name,
+      sector,
+      city,
+      address: comp.address || whatsappAgent.addressInfo,
+      phone: comp.phone || whatsappAgent.whatsappPhone,
+      email: comp.email,
+      website: comp.website || website.domainUrl,
+    },
+    publicSlug,
+    publicUrl: `/vetrina/${publicSlug}`,
+    website,
+    whatsappAgent,
+    articles,
+    reviews,
+    gbpOffers,
+    stats: {
+      avgRating,
+      totalReviews: reviews.length,
+      articlesCount: articles.length,
+    },
+  };
+}
+
+export async function getPublicVetrinaArticle(slugOrCompanyId: string, articleSlugOrId: string) {
+  const bundle = await getPublicVetrinaBundle(slugOrCompanyId);
+  if (!bundle) return null;
+
+  const cleanArtSlug = decodeURIComponent(articleSlugOrId).trim().toLowerCase();
+  const article = bundle.articles.find(
+    (a) => a.slug.toLowerCase() === cleanArtSlug || a.id === articleSlugOrId.trim()
+  );
+
+  if (!article) return null;
+
+  const relatedArticles = bundle.articles.filter((a) => a.id !== article.id).slice(0, 3);
+
+  return {
+    bundle,
+    article,
+    relatedArticles,
+  };
+}
+
+export async function handlePublicVetrinaInteraction(
+  slugOrCompanyId: string,
+  input: {
+    customerName: string;
+    customerPhone: string;
+    customerEmail?: string;
+    messageText: string;
+    serviceSelected?: string;
+    preferredDate?: string;
+    conversationId?: string;
+  }
+) {
+  const comp = resolveCompanyByPublicSlug(slugOrCompanyId);
+  if (!comp) {
+    throw new Error('Attività locale non trovata');
+  }
+
+  // Resolve a fallback system user for audit/organizer references
+  const sysUser = db.select().from(users).limit(1).get();
+  const systemSession: UserSessionPayload = {
+    userId: sysUser?.id || 'usr_admin_01',
+    name: sysUser?.name || 'Sistema Vetrina Pubblica',
+    email: sysUser?.email || 'admin@agency.it',
+    role: 'admin',
+  };
+
+  let enrichedMessage = input.messageText.trim();
+  if (input.serviceSelected || input.preferredDate) {
+    const parts: string[] = [];
+    if (input.serviceSelected) parts.push(`Servizio richiesto: ${input.serviceSelected}`);
+    if (input.preferredDate) parts.push(`Data/Ora preferita: ${input.preferredDate}`);
+    enrichedMessage = `[Prenotazione dal Sito Vetrina - ${parts.join(' | ')}] ${enrichedMessage || 'Vorrei prenotare un appuntamento'}`;
+  }
+
+  const result = await simulateIncomingWhatsappMessage(
+    {
+      companyId: comp.id,
+      customerName: input.customerName.trim(),
+      customerPhone: input.customerPhone.trim(),
+      messageText: enrichedMessage,
+      conversationId: input.conversationId,
+    },
+    systemSession
+  );
+
+  // If email was provided and a lead was created, enrich the lead with email
+  if (input.customerEmail && result.linkedLeadId) {
+    db.update(leads)
+      .set({ email: input.customerEmail.trim() })
+      .where(eq(leads.id, result.linkedLeadId))
+      .run();
+  }
+
+  return result;
 }
 
 // ============================================================================
